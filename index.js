@@ -3,6 +3,7 @@ import getRawBody from "raw-body";
 import crypto from "crypto";
 import dotenv from "dotenv";
 dotenv.config();
+import { hashUserData } from "./src/utils/hash.js";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -91,6 +92,74 @@ async function sendToMetaCAPI(payload) {
   return { status: res.status, data };
 }
 
+function mapEvent(body, req) {
+  const nowSec = Math.floor(Date.now() / 1000);
+  const inputName = (body?.event_name || "PageView").trim();
+  const originalName = inputName;
+
+  let event_name = originalName;
+  const cd = typeof body?.custom_data === "object" && body.custom_data ? { ...body.custom_data } : {};
+
+  // Regras para FTD → Purchase com event_type=FTD
+  if (originalName === "FTD") {
+    event_name = "Purchase";
+    if (cd && cd.event_type == null) {
+      cd.event_type = "FTD";
+    }
+  }
+
+  // Validação de Purchase (inclui FTD mapeado)
+  const isPurchase = event_name === "Purchase";
+  if (isPurchase) {
+    if (cd == null || typeof cd.value !== "number" || Number.isNaN(cd.value) || !cd.currency) {
+      return { error: "invalid_purchase_payload" };
+    }
+  }
+
+  const event_time = Number.isInteger(body?.event_time) ? body.event_time : nowSec;
+  const event_id = body?.event_id || crypto.randomUUID();
+  const event_source_url = body?.event_source_url;
+
+  const { fbp, fbc } = extractFBPFBC(req);
+  const client_ip_address = req.headers["x-forwarded-for"]?.split(",")[0]?.trim()
+    || req.socket?.remoteAddress
+    || req.ip
+    || undefined;
+  const client_user_agent = req.headers["user-agent"] || undefined;
+
+  // Hash de PII
+  const rawUserData = typeof body?.user_data === "object" && body.user_data ? body.user_data : {};
+  const hashed = hashUserData(rawUserData);
+
+  const user_data = {
+    client_ip_address,
+    client_user_agent,
+    fbp,
+    fbc,
+    ...hashed,
+  };
+
+  const custom_data = { ...cd };
+  if (isPurchase && !custom_data.currency) custom_data.currency = "BRL";
+
+  const payload = {
+    data: [
+      {
+        event_name,
+        event_time,
+        event_id,
+        action_source: "website",
+        ...(event_source_url ? { event_source_url } : {}),
+        user_data,
+        custom_data,
+      }
+    ],
+    partner_agent: "midas-capi/1.0",
+  };
+
+  return { payload, mapped_event_name: event_name, event_id };
+}
+
 // Health
 app.get("/health", (_req, res) => res.status(200).json({ ok: true, ts: Date.now() }));
 
@@ -126,55 +195,19 @@ app.post("/webhook", async (req, res) => {
     return res.status(500).json({ ok: false, error: "missing_pixel_or_token" });
   }
 
-  const nowSec = Math.floor(Date.now() / 1000);
-  const {
-    event_name = "PageView",
-    event_time = nowSec,
-    event_source_url,
-    custom_data = {},
-    user_data = {}
-  } = req.body || {};
-
-  const event_id = genEventId(req.body);
-  const { fbp, fbc } = extractFBPFBC(req);
-
-  const client_ip_address = req.headers["x-forwarded-for"]?.split(",")[0]?.trim()
-    || req.socket?.remoteAddress
-    || req.ip
-    || undefined;
-  const client_user_agent = req.headers["user-agent"] || undefined;
-
-  const payload = {
-    data: [
-      {
-        event_name,
-        event_time,
-        event_id,
-        action_source: "website",
-        event_source_url,
-        user_data: {
-          // Envie só o que tiver — Meta recomenda SHA256 para PII (em, ph etc.) já vindo hasheado
-          client_ip_address,
-          client_user_agent,
-          fbp,
-          fbc,
-          ...user_data
-        },
-        custom_data
-      }
-    ],
-    // Opcional: código de teste para modo "Test Events" do Events Manager
-    // "test_event_code": "TEST123"
-    partner_agent: "midas-capi/1.0"
-  };
+  const mapped = mapEvent(req.body || {}, req);
+  if (mapped.error) {
+    if (mapped.error === "invalid_purchase_payload") {
+      return res.status(400).json({ ok: false, error: mapped.error });
+    }
+    return res.status(400).json({ ok: false, error: mapped.error });
+  }
 
   try {
-    const result = await sendToMetaCAPI(payload);
-    // Log mínimo e seguro
-    console.log("CAPI result:", { status: result.status, data: result.data, event_id });
-    return res.status(200).json({ ok: true, event_id, capi_status: result.status, capi_response: result.data });
-  } catch (e) {
-    console.error("CAPI error:", e);
+    const result = await sendToMetaCAPI(mapped.payload);
+    console.log("CAPI:", { status: result.status, events_received: mapped.payload?.data?.length || 0, event_name: mapped.mapped_event_name, event_id: mapped.event_id });
+    return res.status(200).json({ ok: true, event_id: mapped.event_id, capi_status: result.status, events_received: mapped.payload?.data?.length || 0, capi_response: result.data });
+  } catch (_e) {
     return res.status(500).json({ ok: false, error: "capi_request_failed" });
   }
 });
