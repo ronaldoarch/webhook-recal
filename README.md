@@ -18,7 +18,7 @@ Node 20 (fetch nativo). Rotas:
 
 - `event_name` permitido: `PageView`, `Lead`, `CompleteRegistration`, `Purchase`, `FTD`.
 - `FTD` é transformado em `Purchase` e adiciona `custom_data.event_type = "FTD"`.
-- `Purchase` (inclusive FTD mapeado): exige `custom_data.value` numérico e `custom_data.currency` (padrão `BRL` se ausente no payload inicial FTD).
+- `Purchase` (inclusive FTD mapeado): exige `custom_data.value` numérico e `custom_data.currency`.
 - `Lead`, `CompleteRegistration`, `PageView`: sem validações rígidas.
 - `event_time`: se ausente, `Math.floor(Date.now()/1000)`.
 - `event_id`: se ausente, `crypto.randomUUID()`.

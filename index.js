@@ -140,7 +140,6 @@ function mapEvent(body, req) {
   };
 
   const custom_data = { ...cd };
-  if (isPurchase && !custom_data.currency) custom_data.currency = "BRL";
 
   const payload = {
     data: [
