@@ -127,8 +127,13 @@ function mapEvent(body, req) {
     || undefined;
   const client_user_agent = req.headers["user-agent"] || undefined;
 
-  // Hash de PII
-  const rawUserData = typeof body?.user_data === "object" && body.user_data ? body.user_data : {};
+  // Hash de PII (aceita campos no user_data e no nível raiz do body)
+  const rawUserData = typeof body?.user_data === "object" && body.user_data ? { ...body.user_data } : {};
+  if (body?.email && rawUserData.email == null && rawUserData.em == null) rawUserData.email = body.email;
+  if (body?.phone && rawUserData.phone == null && rawUserData.ph == null) rawUserData.phone = body.phone;
+  if (body?.em && rawUserData.em == null) rawUserData.em = body.em;
+  if (body?.ph && rawUserData.ph == null) rawUserData.ph = body.ph;
+  if (body?.external_id && rawUserData.external_id == null) rawUserData.external_id = body.external_id;
   const hashed = hashUserData(rawUserData);
 
   const user_data = {
