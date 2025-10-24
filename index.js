@@ -11,6 +11,7 @@ const SHARED_SECRET = process.env.SHARED_SECRET || "";
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN || "";
 const PIXEL_ID = process.env.PIXEL_ID;
 const ACCESS_TOKEN = process.env.ACCESS_TOKEN;
+const REDIS_URL = process.env.REDIS_URL;
 
 if (!PIXEL_ID || !ACCESS_TOKEN) {
   console.error("Faltam variáveis PIXEL_ID e/ou ACCESS_TOKEN");
@@ -104,6 +105,83 @@ function genEventId(body) {
 function onlyAllowed(eventName) {
   const allowed = (process.env.ALLOW_EVENTS || "").split(",").map(s => s.trim()).filter(Boolean);
   return allowed.length === 0 || allowed.includes(eventName);
+}
+
+function isDepositEventType(typeLower) {
+  const list = (process.env.DEPOSIT_EVENT_TYPES || "").split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
+  return list.length > 0 && list.includes(typeLower);
+}
+
+// Optional Redis support for FTD/idempotency with in-memory fallback
+let redisClient = null;
+let redisReady = false;
+let redisTried = false;
+async function getRedis() {
+  if (!REDIS_URL) return null;
+  if (redisReady && redisClient) return redisClient;
+  if (redisTried) return null;
+  redisTried = true;
+  try {
+    const mod = await import('redis');
+    const client = mod.createClient({ url: REDIS_URL });
+    client.on('error', () => {});
+    await client.connect();
+    redisClient = client;
+    redisReady = true;
+    return redisClient;
+  } catch (_e) {
+    return null;
+  }
+}
+
+const MEMORY_TTL_MS = 48 * 60 * 60 * 1000;
+const memFtdByUser = new Map(); // key -> expiresAt
+const memSeenDeposit = new Map(); // depositId -> expiresAt
+function nowMs() { return Date.now(); }
+function notExpired(ts) { return typeof ts === 'number' && nowMs() < ts; }
+function memMarkFtdIfFirst(userKey) {
+  if (!userKey) return false;
+  const exp = memFtdByUser.get(userKey);
+  if (notExpired(exp)) return false;
+  memFtdByUser.set(userKey, nowMs() + MEMORY_TTL_MS);
+  return true;
+}
+function memSeenDepositAdd(depositId) {
+  if (!depositId) return true;
+  const exp = memSeenDeposit.get(depositId);
+  if (notExpired(exp)) return false;
+  memSeenDeposit.set(depositId, nowMs() + MEMORY_TTL_MS);
+  return true;
+}
+function parseBoolLike(v) {
+  if (v === true || v === 1) return true;
+  if (v === false || v === 0) return false;
+  if (typeof v === 'string') {
+    const s = v.trim().toLowerCase();
+    if (["1","true","yes","y","sim"].includes(s)) return true;
+    if (["0","false","no","n","nao","não"].includes(s)) return false;
+  }
+  return null;
+}
+function coerceNumber(n) {
+  if (typeof n === 'number') return Number.isFinite(n) ? n : undefined;
+  if (typeof n === 'string') {
+    const x = parseFloat(n);
+    return Number.isFinite(x) ? x : undefined;
+  }
+  return undefined;
+}
+
+function parseEventTimeToSeconds(v) {
+  if (typeof v === 'number') {
+    if (!Number.isFinite(v)) return undefined;
+    return Math.floor(v > 1e12 ? v / 1000 : v);
+  }
+  if (typeof v === 'string') {
+    const t = new Date(v).getTime();
+    if (Number.isFinite(t)) return Math.floor(t / 1000);
+  }
+  return undefined;
 }
 
 async function sendToMetaCAPI(payload) {
@@ -236,6 +314,91 @@ app.post("/webhook", async (req, res) => {
     if (t === "user.register") {
       p.event_name = "Lead";
     }
+    // Mapeamento de depósito pago -> Purchase
+    if (!p.event_name && isDepositEventType(t)) {
+      // Idempotência por depósito
+      const depositIdRaw = p.deposit_id ?? p.pix_id ?? p.transaction_id;
+      const depositId = depositIdRaw != null ? String(depositIdRaw) : undefined;
+      if (depositId) {
+        let duplicate = false;
+        try {
+          const rc = await getRedis();
+          if (rc) {
+            const added = await rc.sAdd('seen:deposit', depositId);
+            if (typeof added === 'number' ? added === 0 : added === 0n) duplicate = true;
+          } else {
+            const addedMem = memSeenDepositAdd(depositId);
+            if (!addedMem) duplicate = true;
+          }
+        } catch (_) {}
+        if (duplicate) {
+          console.log(JSON.stringify({ level: "info", msg: "duplicate_deposit", deposit_id: depositId }));
+          return res.status(204).end();
+        }
+      }
+
+      p.event_name = "Purchase";
+      p.custom_data = p.custom_data || {};
+      const value = coerceNumber(p.amount ?? p.pix_amount ?? p.deposit_amount);
+      if (value !== undefined) p.custom_data.value = value;
+      if (!p.custom_data.currency) p.custom_data.currency = p.currency || "BRL";
+
+      // event_type: FTD ou REDEPOSIT
+      let eventType = null;
+      const flag = parseBoolLike(p.is_first_deposit ?? p.first_deposit ?? p.isFirstDeposit ?? p.firstDeposit);
+      if (flag === true) eventType = "FTD";
+      else if (flag === false) eventType = "REDEPOSIT";
+      else {
+        const userKeyRaw = p.user_id ?? p.account_id ?? p.customer_id;
+        const userKey = userKeyRaw != null ? String(userKeyRaw) : undefined;
+        if (userKey) {
+          try {
+            const rc = await getRedis();
+            if (rc) {
+              const wasSet = await rc.setNX(`ftd:user:${userKey}`, "1");
+              eventType = wasSet ? "FTD" : "REDEPOSIT";
+            } else {
+              eventType = memMarkFtdIfFirst(`user:${userKey}`) ? "FTD" : "REDEPOSIT";
+            }
+          } catch (_) {
+            eventType = memMarkFtdIfFirst(`user:${userKey}`) ? "FTD" : "REDEPOSIT";
+          }
+        }
+      }
+      if (eventType && !p.custom_data.event_type) p.custom_data.event_type = eventType;
+
+      if (!p.custom_data.account_id) {
+        const accId = p.user_id ?? p.account_id ?? p.customer_id;
+        if (accId != null) p.custom_data.account_id = String(accId);
+      }
+      if (!p.custom_data.external_id) {
+        const extTxId = p.deposit_id ?? p.pix_id ?? p.transaction_id;
+        if (extTxId != null) p.custom_data.external_id = String(extTxId);
+      }
+      if (!p.custom_data.gateway) {
+        const gw = p.gateway ?? p.pix_gateway;
+        if (gw) p.custom_data.gateway = gw;
+      }
+
+      // event_time
+      if (!p.event_time) {
+        const tSec = parseEventTimeToSeconds(p.paid_at ?? p.confirmed_at);
+        if (tSec) p.event_time = tSec;
+      }
+      // URL de origem
+      if (!p.event_source_url) {
+        p.event_source_url = p.payment_url || "https://betbelga.com/deposito/sucesso";
+      }
+
+      // user_data fallback
+      p.user_data = p.user_data || {};
+      if (!p.user_data.email && p.email) p.user_data.email = p.email;
+      if (!p.user_data.phone && p.phone) p.user_data.phone = p.phone;
+      if (!p.user_data.external_id) {
+        const ext = p.user_id ?? p.account_id ?? p.customer_id;
+        if (ext !== undefined && ext !== null) p.user_data.external_id = String(ext);
+      }
+    }
   }
 
   // Montar user_data para o caso de user.register (ou Lead sem user_data)
@@ -277,7 +440,8 @@ app.post("/webhook", async (req, res) => {
       event_name: mapped.mapped_event_name,
       event_id: mapped.event_id,
       capi_status: result.status,
-      events_received: result.data?.events_received ?? null
+      events_received: result.data?.events_received ?? null,
+      event_type: (mapped.payload?.data?.[0]?.custom_data?.event_type) || null
     }));
     return res.status(200).json({ ok: true, event_id: mapped.event_id, capi_status: result.status, events_received: mapped.payload?.data?.length || 0, capi_response: result.data });
   } catch (_e) {
