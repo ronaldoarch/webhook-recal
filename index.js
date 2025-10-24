@@ -103,8 +103,38 @@ function genEventId(body) {
 }
 
 function onlyAllowed(eventName) {
-  const allowed = (process.env.ALLOW_EVENTS || "").split(",").map(s => s.trim()).filter(Boolean);
+  const allowed = (process.env.ALLOW_EVENTS || "")
+    .split(",").map(s => s.trim()).filter(Boolean);
   return allowed.length === 0 || allowed.includes(eventName);
+}
+
+// --- FTD control (in-memory) ---
+const firstDepositByUser = new Set();   // guarda user_ids que já tiveram FTD
+const seenDeposits = new Set();         // idempotência por deposit_id (evita duplicadas)
+
+function pick(obj, keys) {
+  for (const k of keys) {
+    const path = k.split(".");
+    let v = obj;
+    for (const p of path) {
+      if (v && Object.prototype.hasOwnProperty.call(v, p)) v = v[p];
+      else { v = undefined; break; }
+    }
+    if (v !== undefined && v !== null) return v;
+  }
+  return undefined;
+}
+function toNumberSafe(v) {
+  if (typeof v === "number") return v;
+  if (typeof v === "string") {
+    const n = Number(v.replace(",", "."));
+    if (!Number.isNaN(n)) return n;
+  }
+  return undefined;
+}
+function getAllowedTypesFromEnv(name) {
+  return (process.env[name] || "")
+    .split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
 }
 
 function isDepositEventType(typeLower) {
