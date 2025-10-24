@@ -81,6 +81,11 @@ function genEventId(body) {
   return body?.event_id || crypto.randomUUID();
 }
 
+function onlyAllowed(eventName) {
+  const allowed = (process.env.ALLOW_EVENTS || "").split(",").map(s => s.trim()).filter(Boolean);
+  return allowed.length === 0 || allowed.includes(eventName);
+}
+
 async function sendToMetaCAPI(payload) {
   const url = `https://graph.facebook.com/v18.0/${PIXEL_ID}/events?access_token=${encodeURIComponent(ACCESS_TOKEN)}`;
   const res = await fetch(url, {
@@ -199,6 +204,40 @@ app.post("/webhook", async (req, res) => {
     return res.status(500).json({ ok: false, error: "missing_pixel_or_token" });
   }
 
+  // Normalização do corpo
+  const p = req.body || {};
+
+  // Mapear user.register -> Lead (se não vier event_name explicitamente)
+  if (!p.event_name) {
+    const t = (p.type || p.event || "").toString().toLowerCase();
+    if (t === "user.register") {
+      p.event_name = "Lead";
+    }
+  }
+
+  // Montar user_data para o caso de user.register (ou Lead sem user_data)
+  if (p.event_name === "Lead") {
+    p.user_data = p.user_data || {};
+    if (!p.user_data.email && p.email) p.user_data.email = p.email;
+    if (!p.user_data.phone && p.phone) p.user_data.phone = p.phone;
+    if (!p.user_data.external_id) {
+      const ext = p.user_id ?? p.id ?? p.username;
+      if (ext !== undefined && ext !== null) p.user_data.external_id = String(ext);
+    }
+    if (!p.event_source_url) {
+      p.event_source_url = "https://betbelga.com/form"; // fallback
+    }
+  }
+
+  // Aplicar filtro por eventos permitidos
+  if (!onlyAllowed(p.event_name)) {
+    console.log(JSON.stringify({ level: "info", msg: "event_blocked", event_name: p.event_name }));
+    return res.status(204).end(); // drop silencioso
+  }
+
+  // Substituir req.body por p para o restante do fluxo
+  req.body = p;
+
   const mapped = mapEvent(req.body || {}, req);
   if (mapped.error) {
     if (mapped.error === "invalid_purchase_payload") {
@@ -209,7 +248,14 @@ app.post("/webhook", async (req, res) => {
 
   try {
     const result = await sendToMetaCAPI(mapped.payload);
-    console.log("CAPI:", { status: result.status, events_received: mapped.payload?.data?.length || 0, event_name: mapped.mapped_event_name, event_id: mapped.event_id });
+    console.log(JSON.stringify({
+      level: "info",
+      msg: "capi_result",
+      event_name: mapped.mapped_event_name,
+      event_id: mapped.event_id,
+      capi_status: result.status,
+      events_received: result.data?.events_received ?? null
+    }));
     return res.status(200).json({ ok: true, event_id: mapped.event_id, capi_status: result.status, events_received: mapped.payload?.data?.length || 0, capi_response: result.data });
   } catch (_e) {
     return res.status(500).json({ ok: false, error: "capi_request_failed" });
