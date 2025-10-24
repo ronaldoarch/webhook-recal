@@ -36,40 +36,36 @@ app.use(async (req, _res, next) => {
 
 // util para extrair header de assinatura normalizado
 function getNormalizedSignature(req) {
-  const candidates = [
-    req.headers["x-signature"],
-    req.headers["x-hub-signature-256"],
-    req.headers["x-webhook-signature"],
-  ].filter(Boolean);
-
-  if (!candidates.length) return null;
-  let raw = String(candidates[0]).trim();
-  // aceita formatos: "<hex>" ou "sha256=<hex>"
-  const idx = raw.indexOf("=");
-  if (idx >= 0) raw = raw.slice(idx + 1);
+  const names = [
+    "x-signature",
+    "x-hub-signature-256",
+    "x-webhook-signature",
+    "x-signature-sha256",
+    "x-hmac-signature",
+    "x-hmac-sha256",
+  ];
+  const found = names.map(n => req.headers[n]).find(Boolean);
+  if (!found) return null;
+  let raw = String(found).trim();
+  const i = raw.indexOf("=");           // aceita "sha256=<hex>"
+  if (i >= 0) raw = raw.slice(i + 1);
   return raw.trim().toLowerCase();
 }
 
-function verifyHmac(req, rawBodyBuffer, secret) {
-  if (!secret) return true; // sem secret, não exige assinatura
-
+function verifyHmac(req, rawBody, secret) {
+  if (!secret) return { ok: true };
   const provided = getNormalizedSignature(req);
-  if (!provided) {
-    // sem assinatura
-    return { ok: false, reason: "missing_signature" };
-  }
+  if (!provided) return { ok: false, reason: "missing_signature" };
 
   const h = crypto.createHmac("sha256", Buffer.from(secret, "utf8"));
-  h.update(rawBodyBuffer); // IMPORTANT: os MESMOS BYTES do body
-  const expected = h.digest("hex"); // hex minúsculo
+  h.update(rawBody);
+  const expected = h.digest("hex");     // hex minúsculo
 
   const ok = crypto.timingSafeEqual(
     Buffer.from(provided, "utf8"),
     Buffer.from(expected, "utf8")
   );
-
-  if (!ok) return { ok: false, reason: "invalid_signature" };
-  return { ok: true };
+  return ok ? { ok: true } : { ok: false, reason: "invalid_signature" };
 }
 
 function parseCookies(cookieHeader) {
@@ -326,10 +322,22 @@ app.get("/webhook", (req, res) => {
  */
 app.post("/webhook", async (req, res) => {
   const secret = process.env.SHARED_SECRET || "";
-  const ver = verifyHmac(req, req.rawBodyBuffer || Buffer.from(req.rawBody || "", "utf8"), secret);
+  const raw = req.rawBodyBuffer || Buffer.from(req.rawBody || "", "utf8");
+  const ver = verifyHmac(req, raw, secret);
   if (ver !== true && ver.ok === false) {
     console.log(JSON.stringify({ level: "warn", msg: "auth_fail", reason: ver.reason }));
     return res.status(401).json({ ok: false, error: ver.reason });
+  }
+
+  // detectar "modo teste" do painel
+  const isTest =
+    req.query.test === "true" ||
+    req.headers["x-webhook-test"] === "true" ||
+    (req.body && (req.body.test === true || req.body.type === "webhook.test"));
+
+  if (isTest) {
+    console.log(JSON.stringify({ level: "info", msg: "webhook_test_received" }));
+    return res.status(200).json({ ok: true, test: true });
   }
   if (!PIXEL_ID || !ACCESS_TOKEN) {
     return res.status(500).json({ ok: false, error: "missing_pixel_or_token" });
@@ -363,7 +371,7 @@ app.post("/webhook", async (req, res) => {
         } catch (_) {}
         if (duplicate) {
           console.log(JSON.stringify({ level: "info", msg: "duplicate_deposit", deposit_id: depositId }));
-          return res.status(204).end();
+          return res.status(200).json({ ok: true, ignored: true, reason: "duplicate_deposit", deposit_id: String(depositId || "") });
         }
       }
 
@@ -394,6 +402,11 @@ app.post("/webhook", async (req, res) => {
             eventType = memMarkFtdIfFirst(`user:${userKey}`) ? "FTD" : "REDEPOSIT";
           }
         }
+      }
+      if (eventType === "REDEPOSIT") {
+        // enquanto estiver ignorando redepósitos
+        console.log(JSON.stringify({ level: "info", msg: "redeposit_ignored", user_id: String((p.user_id ?? p.account_id ?? p.customer_id) || "") }));
+        return res.status(200).json({ ok: true, ignored: true, reason: "redeposit_ignored", user_id: String((p.user_id ?? p.account_id ?? p.customer_id) || "") });
       }
       if (eventType && !p.custom_data.event_type) p.custom_data.event_type = eventType;
 
@@ -448,7 +461,7 @@ app.post("/webhook", async (req, res) => {
   // Aplicar filtro por eventos permitidos
   if (!onlyAllowed(p.event_name)) {
     console.log(JSON.stringify({ level: "info", msg: "event_blocked", event_name: p.event_name }));
-    return res.status(204).end(); // drop silencioso
+    return res.status(200).json({ ok: true, ignored: true, reason: "event_blocked", event_name: p.event_name || null });
   }
 
   // Substituir req.body por p para o restante do fluxo
