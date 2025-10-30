@@ -134,8 +134,16 @@ function getAllowedTypesFromEnv(name) {
 }
 
 function isDepositEventType(typeLower) {
-  const list = (process.env.DEPOSIT_EVENT_TYPES || "").split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
-  return list.length > 0 && list.includes(typeLower);
+  // normaliza removendo caracteres não alfanuméricos para permitir
+  // variações como "deposit_made", "deposit-made", "depositmade"
+  const normalize = (s) => (s || "").toString().toLowerCase().replace(/[^a-z0-9]/g, "");
+  const t = normalize(typeLower);
+  const raw = (process.env.DEPOSIT_EVENT_TYPES || "");
+  const list = raw
+    .split(",")
+    .map(s => normalize(s.trim()))
+    .filter(Boolean);
+  return list.length > 0 && list.includes(t);
 }
 
 // Optional Redis support for FTD/idempotency with in-memory fallback
