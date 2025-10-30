@@ -143,7 +143,19 @@ function isDepositEventType(typeLower) {
     .split(",")
     .map(s => normalize(s.trim()))
     .filter(Boolean);
-  return list.length > 0 && list.includes(t);
+  if (list.length > 0) return list.includes(t);
+  // Se não houver env configurada, aceite aliases comuns de provedores
+  const defaults = new Set([
+    "depositmade",
+    "deposit_made",
+    "deposit-made",
+    "deposit",
+    "paymentconfirmed",
+    "payment_confirmed",
+    "pixpaid",
+    "pix_confirmed",
+  ]);
+  return defaults.has(t);
 }
 
 // Optional Redis support for FTD/idempotency with in-memory fallback
