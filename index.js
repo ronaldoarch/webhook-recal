@@ -346,10 +346,22 @@ app.post("/webhook", async (req, res) => {
   // Normalização do corpo
   const p = req.body || {};
 
-  // Mapear user.register -> Lead (se não vier event_name explicitamente)
+  // Mapear eventos de cadastro -> Lead (se não vier event_name explicitamente)
   if (!p.event_name) {
     const t = (p.type || p.event || "").toString().toLowerCase();
-    if (t === "user.register") {
+    // aceitar várias nomenclaturas comuns de cadastro
+    const registerAliases = new Set([
+      "user.register",
+      "userregistered",
+      "user_registered",
+      "user-created",
+      "usercreated",
+      "signup",
+      "sign_up",
+      "registered",
+      "registrationcompleted",
+    ]);
+    if (registerAliases.has(t)) {
       p.event_name = "Lead";
     }
     // Mapeamento de depósito pago -> Purchase
