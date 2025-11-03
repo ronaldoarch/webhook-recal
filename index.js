@@ -154,6 +154,7 @@ function isDepositEventType(typeLower) {
     "payment_confirmed",
     "pixpaid",
     "pix_confirmed",
+    "onlinepixconfirm",
   ]);
   return defaults.has(t);
 }
@@ -380,6 +381,7 @@ app.post("/webhook", async (req, res) => {
       "sign_up",
       "registered",
       "registrationcompleted",
+      "onlineregisteraccount",
     ]);
     if (registerAliases.has(t)) {
       p.event_name = "Lead";
