@@ -369,16 +369,15 @@ app.post("/webhook", async (req, res) => {
 
   // Mapear eventos de cadastro -> Lead (se não vier event_name explicitamente)
   if (!p.event_name) {
-    const t = (p.type || p.event || "").toString().toLowerCase();
+    const raw = (p.type || p.event || "").toString().toLowerCase();
+    // normaliza removendo caracteres não alfanuméricos (hífens, underscores, pontos)
+    const t = raw.replace(/[^a-z0-9]/g, "");
     // aceitar várias nomenclaturas comuns de cadastro
     const registerAliases = new Set([
-      "user.register",
+      "userregister",
       "userregistered",
-      "user_registered",
-      "user-created",
       "usercreated",
       "signup",
-      "sign_up",
       "registered",
       "registrationcompleted",
       "onlineregisteraccount",
