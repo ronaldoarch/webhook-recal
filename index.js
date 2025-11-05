@@ -367,6 +367,191 @@ app.post("/webhook", async (req, res) => {
   // Normalização do corpo
   const p = req.body || {};
 
+  // ===== PROCESSAMENTO ESPECÍFICO DOS EVENTOS DE MARKETING =====
+  // Detectar e processar eventos baseados no campo "type"
+  const eventType = (p.type || "").toString().toLowerCase().replace(/[^a-z0-9_]/g, "");
+  
+  if (eventType === "register_new_user") {
+    // Evento: Novo usuário registrado
+    p.event_name = "Lead";
+    p.user_data = p.user_data || {};
+    
+    // Mapear dados do usuário
+    if (p.email && !p.user_data.email) p.user_data.email = p.email;
+    if (p.phone && !p.user_data.phone) p.user_data.phone = p.phone;
+    if (p.name) {
+      // Extrair first_name e last_name do nome completo
+      const nameParts = p.name.trim().split(" ");
+      if (!p.user_data.fn) p.user_data.fn = nameParts[0];
+      if (!p.user_data.ln && nameParts.length > 1) {
+        p.user_data.ln = nameParts.slice(1).join(" ");
+      }
+    }
+    if (p.date_birth && !p.user_data.db) {
+      // Formatar data de nascimento (remover hífens: YYYY-MM-DD -> YYYYMMDD)
+      p.user_data.db = p.date_birth.replace(/-/g, "");
+    }
+    
+    // Capturar IP e User Agent
+    if (p.ip_address && !p.user_data.client_ip_address) {
+      p.user_data.client_ip_address = p.ip_address;
+    }
+    if (p.user_agent && !p.user_data.client_user_agent) {
+      p.user_data.client_user_agent = p.user_agent;
+    }
+    
+    // Parâmetros do Meta Pixel
+    if (p.fbp) p.fbp = p.fbp;
+    if (p.fbc) p.fbc = p.fbc;
+    
+    // Custom data com informações de origem
+    p.custom_data = p.custom_data || {};
+    if (p.usernameIndication) p.custom_data.referrer_username = p.usernameIndication;
+    if (p.origem_cid) p.custom_data.origem_cid = p.origem_cid;
+    if (p.utm_source) p.custom_data.utm_source = p.utm_source;
+    if (p.utm_campaign) p.custom_data.utm_campaign = p.utm_campaign;
+    if (p.utm_medium) p.custom_data.utm_medium = p.utm_medium;
+    
+    // URL de origem
+    if (!p.event_source_url) {
+      p.event_source_url = "https://betbelga.com/cadastro";
+    }
+    
+    console.log(JSON.stringify({
+      level: "info",
+      msg: "register_new_user_processed",
+      email: p.email ? "***" : null,
+      phone: p.phone ? "***" : null
+    }));
+  }
+  else if (eventType === "deposit_generated") {
+    // Evento: Depósito gerado (PIX criado, aguardando pagamento)
+    p.event_name = "InitiateCheckout";
+    p.user_data = p.user_data || {};
+    
+    // Mapear dados do usuário
+    if (p.email && !p.user_data.email) p.user_data.email = p.email;
+    if (p.phone && !p.user_data.phone) p.user_data.phone = p.phone;
+    if (p.name) {
+      const nameParts = p.name.trim().split(" ");
+      if (!p.user_data.fn) p.user_data.fn = nameParts[0];
+      if (!p.user_data.ln && nameParts.length > 1) {
+        p.user_data.ln = nameParts.slice(1).join(" ");
+      }
+    }
+    if (p.date_birth && !p.user_data.db) {
+      p.user_data.db = p.date_birth.replace(/-/g, "");
+    }
+    if (p.ip_address && !p.user_data.client_ip_address) {
+      p.user_data.client_ip_address = p.ip_address;
+    }
+    if (p.user_agent && !p.user_data.client_user_agent) {
+      p.user_data.client_user_agent = p.user_agent;
+    }
+    
+    // Parâmetros do Meta Pixel
+    if (p.fbp) p.fbp = p.fbp;
+    if (p.fbc) p.fbc = p.fbc;
+    
+    // Custom data com valor e informações do PIX
+    p.custom_data = p.custom_data || {};
+    if (p.value !== undefined) {
+      p.custom_data.value = coerceNumber(p.value);
+      p.custom_data.currency = "BRL";
+    }
+    if (p.qrCode) p.custom_data.pix_qr_code = p.qrCode.substring(0, 50) + "..."; // Truncar para não poluir logs
+    if (p.copiaECola) p.custom_data.pix_copy_paste = p.copiaECola.substring(0, 50) + "...";
+    if (p.usernameIndication) p.custom_data.referrer_username = p.usernameIndication;
+    
+    // URL de origem
+    if (!p.event_source_url) {
+      p.event_source_url = "https://betbelga.com/deposito";
+    }
+    
+    console.log(JSON.stringify({
+      level: "info",
+      msg: "deposit_generated_processed",
+      value: p.value
+    }));
+  }
+  else if (eventType === "confirmed_deposit") {
+    // Evento: Depósito confirmado (pagamento recebido)
+    p.event_name = "Purchase";
+    p.user_data = p.user_data || {};
+    
+    // Mapear dados do usuário
+    if (p.email && !p.user_data.email) p.user_data.email = p.email;
+    if (p.phone && !p.user_data.phone) p.user_data.phone = p.phone;
+    if (p.name) {
+      const nameParts = p.name.trim().split(" ");
+      if (!p.user_data.fn) p.user_data.fn = nameParts[0];
+      if (!p.user_data.ln && nameParts.length > 1) {
+        p.user_data.ln = nameParts.slice(1).join(" ");
+      }
+    }
+    if (p.date_birth && !p.user_data.db) {
+      p.user_data.db = p.date_birth.replace(/-/g, "");
+    }
+    if (p.ip_address && !p.user_data.client_ip_address) {
+      p.user_data.client_ip_address = p.ip_address;
+    }
+    if (p.user_agent && !p.user_data.client_user_agent) {
+      p.user_data.client_user_agent = p.user_agent;
+    }
+    
+    // Parâmetros do Meta Pixel
+    if (p.fbp) p.fbp = p.fbp;
+    if (p.fbc) p.fbc = p.fbc;
+    
+    // Custom data com valor e tipo de depósito
+    p.custom_data = p.custom_data || {};
+    if (p.value !== undefined) {
+      p.custom_data.value = coerceNumber(p.value);
+      p.custom_data.currency = "BRL";
+    }
+    
+    // Determinar se é FTD ou REDEPOSIT baseado no campo first_deposit
+    const isFirstDeposit = parseBoolLike(p.first_deposit);
+    if (isFirstDeposit === true) {
+      p.custom_data.event_type = "FTD";
+    } else {
+      p.custom_data.event_type = "REDEPOSIT";
+      // Por padrão, ignoramos REDEPOSITs conforme lógica existente
+      console.log(JSON.stringify({
+        level: "info",
+        msg: "redeposit_from_confirmed_deposit",
+        approved_deposits: p.approved_deposits
+      }));
+      return res.status(200).json({
+        ok: true,
+        ignored: true,
+        reason: "redeposit_ignored",
+        approved_deposits: p.approved_deposits
+      });
+    }
+    
+    if (p.approved_deposits !== undefined) {
+      p.custom_data.approved_deposits = p.approved_deposits;
+    }
+    if (p.usernameIndication) {
+      p.custom_data.referrer_username = p.usernameIndication;
+    }
+    
+    // URL de origem
+    if (!p.event_source_url) {
+      p.event_source_url = "https://betbelga.com/deposito/sucesso";
+    }
+    
+    console.log(JSON.stringify({
+      level: "info",
+      msg: "confirmed_deposit_processed",
+      value: p.value,
+      event_type: p.custom_data.event_type,
+      approved_deposits: p.approved_deposits
+    }));
+  }
+  // ===== FIM DO PROCESSAMENTO ESPECÍFICO =====
+
   // Mapear eventos de cadastro -> Lead (se não vier event_name explicitamente)
   if (!p.event_name) {
     const raw = (p.type || p.event || "").toString().toLowerCase();
