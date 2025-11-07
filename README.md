@@ -15,9 +15,16 @@ Este webhook agora suporta **payloads específicos para eventos de marketing**, 
 - 🟡 `deposit_generated` → Mapeado para **InitiateCheckout**
 - 🔵 `confirmed_deposit` → Mapeado para **Purchase** (FTD ou REDEPOSIT)
 
-📖 **Documentação completa:** Veja [PAYLOAD_EXAMPLES.md](./PAYLOAD_EXAMPLES.md) para exemplos detalhados e estrutura dos payloads.
+**📚 Documentação:**
+- 🚀 [QUICK_START.md](./QUICK_START.md) - Guia rápido para começar
+- 📖 [PAYLOAD_EXAMPLES.md](./PAYLOAD_EXAMPLES.md) - Exemplos detalhados dos payloads
+- 🎯 [TRACKING_GUIDE.md](./TRACKING_GUIDE.md) - Guia de rastreamento de indicações
+- 🔄 [FLOW_DIAGRAM.md](./FLOW_DIAGRAM.md) - Fluxo visual dos dados
 
-🧪 **Script de teste:** Use `node test-payloads.js <tipo-evento>` para testar os payloads rapidamente.
+**🧪 Script de teste:** Use `node test-payloads.js <tipo-evento>` para testar os payloads rapidamente.
+
+**🎯 Rastreamento de Indicações:**
+O webhook processa automaticamente o parâmetro `usernameIndication` (capturado de URLs como `?indication=agenciamidas`) e envia como `custom_data.referrer_username` para o Meta, permitindo rastrear a origem de cada conversão.
 
 ### Variáveis de ambiente
 

@@ -30,7 +30,7 @@ const PAYLOADS = {
     user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     fbp: "fb.1.1700000000.123456789",
     fbc: "fb.1.1700000000.ABCDEF123",
-    usernameIndication: "user_indicador",
+    usernameIndication: "agenciamidas",  // Capturado de: ?indication=agenciamidas
     origem_cid: "google_ads",
     utm_source: "google",
     utm_campaign: "campanha_teste",
@@ -47,7 +47,7 @@ const PAYLOADS = {
     user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     fbp: "fb.1.1700000000.123456789",
     fbc: "fb.1.1700000000.ABCDEF123",
-    usernameIndication: "user_indicador",
+    usernameIndication: "agenciamidas",  // Capturado de: ?indication=agenciamidas
     qrCode: "00020126360014BR.GOV.BCB.PIX01148146234600152040000530398654041.005802BR5913Loja Exemplo6009SAO PAULO62410503***50300017BR.GOV.BCB.BRCODE01051.0.063044C3A",
     copiaECola: "00020126580014BR.GOV.BCB.PIX01368146234600152040000530398654041.005802BR5925EMPRESA EXEMPLO LTDA6014BELO HORIZONTE62070503***6304A1B2",
     value: 100.50
@@ -63,7 +63,7 @@ const PAYLOADS = {
     user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     fbp: "fb.1.1700000000.123456789",
     fbc: "fb.1.1700000000.ABCDEF123",
-    usernameIndication: "user_indicador",
+    usernameIndication: "agenciamidas",  // Capturado de: ?indication=agenciamidas
     value: 100.50,
     first_deposit: true,
     approved_deposits: 1
@@ -79,7 +79,7 @@ const PAYLOADS = {
     user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     fbp: "fb.1.1700000000.123456789",
     fbc: "fb.1.1700000000.ABCDEF123",
-    usernameIndication: "user_indicador",
+    usernameIndication: "agenciamidas",  // Capturado de: ?indication=agenciamidas
     value: 200.00,
     first_deposit: false,
     approved_deposits: 3
