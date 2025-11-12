@@ -326,24 +326,28 @@ Conclusão: Facebook e Google têm melhor conversão!
 }
 ```
 
-### Evento: Deposit Generated
+### Evento: Deposit Generated (Agência Midas)
+
+**⚠️ IMPORTANTE:** Para agenciamidas, `deposit_generated` é tratado como **Purchase** (finalização de compra), não como InitiateCheckout!
 
 ```json
 {
   "level": "info",
   "msg": "deposit_generated_processed",
   "value": 100.5,
+  "cambista": "agenciamidas",
+  "event_type": "Purchase",
   "timestamp": "2024-11-05T10:35:00.000Z"
 }
 
 {
   "level": "info",
   "msg": "capi_result",
-  "event_name": "InitiateCheckout",
+  "event_name": "Purchase",
   "event_id": "550e8400-e29b-41d4-a716-446655440001",
   "capi_status": 200,
   "events_received": 1,
-  "event_type": null
+  "event_type": "FTD"
 }
 ```
 
@@ -498,6 +502,9 @@ Toda segunda-feira:
 ### O que o webhook faz:
 
 ✅ Recebe o campo `usernameIndication`
+✅ Identifica quando é `agenciamidas` e aplica regras específicas
+✅ **`deposit_generated` com `usernameIndication: "agenciamidas"` = Purchase (FTD)**
+✅ **Outros cambistas mantêm comportamento padrão (InitiateCheckout)**
 ✅ Processa e transforma em `custom_data.referrer_username`
 ✅ Envia ao Meta CAPI
 ✅ Disponível para análise no Events Manager
@@ -505,6 +512,8 @@ Toda segunda-feira:
 ### Resultado:
 
 ✅ **Rastreamento completo de todos os eventos da Agência Midas!**
+✅ **Eventos de Purchase são marcados apenas para agenciamidas!**
+✅ **Outros webhooks não são afetados!**
 ✅ **Possível filtrar e analisar performance separadamente!**
 ✅ **ROI calculado com precisão!**
 
@@ -522,4 +531,5 @@ Toda segunda-feira:
 **Tudo está pronto e funcionando! 🎉**
 
 O webhook está **100% preparado** para processar o link configurado pelo Lucas.
+
 

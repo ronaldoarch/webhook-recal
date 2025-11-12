@@ -425,8 +425,20 @@ app.post("/webhook", async (req, res) => {
     }));
   }
   else if (eventType === "deposit_generated") {
-    // Evento: Depósito gerado (PIX criado, aguardando pagamento)
-    p.event_name = "InitiateCheckout";
+    // Evento: Depósito gerado
+    // Para agenciamidas, este é o evento de Purchase (finalização de compra)
+    // Para outros cambistas, é InitiateCheckout (PIX criado, aguardando pagamento)
+    
+    const isAgenciaMidas = p.usernameIndication === "agenciamidas";
+    
+    if (isAgenciaMidas) {
+      // Para agenciamidas: deposit_generated = Purchase
+      p.event_name = "Purchase";
+    } else {
+      // Para outros: deposit_generated = InitiateCheckout
+      p.event_name = "InitiateCheckout";
+    }
+    
     p.user_data = p.user_data || {};
     
     // Mapear dados do usuário
@@ -463,15 +475,26 @@ app.post("/webhook", async (req, res) => {
     if (p.copiaECola) p.custom_data.pix_copy_paste = p.copiaECola.substring(0, 50) + "...";
     if (p.usernameIndication) p.custom_data.referrer_username = p.usernameIndication;
     
+    // Para agenciamidas, marcar como FTD
+    if (isAgenciaMidas) {
+      p.custom_data.event_type = "FTD";
+    }
+    
     // URL de origem
     if (!p.event_source_url) {
-      p.event_source_url = "https://betbelga.com/deposito";
+      if (isAgenciaMidas) {
+        p.event_source_url = "https://betbelga.com/deposito/sucesso";
+      } else {
+        p.event_source_url = "https://betbelga.com/deposito";
+      }
     }
     
     console.log(JSON.stringify({
       level: "info",
       msg: "deposit_generated_processed",
-      value: p.value
+      value: p.value,
+      cambista: p.usernameIndication || null,
+      event_type: isAgenciaMidas ? "Purchase" : "InitiateCheckout"
     }));
   }
   else if (eventType === "confirmed_deposit") {

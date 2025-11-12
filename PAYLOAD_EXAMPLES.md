@@ -70,9 +70,13 @@ Enviado quando um novo lead se registra na plataforma.
 
 ## 🟡 **Evento 2: `deposit_generated`**
 
-Enviado quando um depósito PIX é gerado (antes da confirmação de pagamento).
+Enviado quando um depósito PIX é gerado.
 
-### Payload de Exemplo
+**⚠️ IMPORTANTE:** O comportamento deste evento varia conforme o cambista:
+- **Para `usernameIndication: "agenciamidas"`**: Mapeado como **`Purchase`** (FTD - finalização de compra)
+- **Para outros cambistas**: Mapeado como **`InitiateCheckout`** (PIX criado, aguardando pagamento)
+
+### Payload de Exemplo (Agência Midas)
 
 ```json
 {
@@ -85,18 +89,46 @@ Enviado quando um depósito PIX é gerado (antes da confirmação de pagamento).
   "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
   "fbp": "fb.1.1700000000.123456789",
   "fbc": "fb.1.1700000000.ABCDEF123",
-  "usernameIndication": "user_indicador",
+  "usernameIndication": "agenciamidas",
   "qrCode": "00020126360014BR.GOV.BCB.PIX...",
   "copiaECola": "00020126580014BR.GOV.BCB.PIX...",
   "value": 100.50
 }
 ```
 
-### O que acontece
+### O que acontece (Agência Midas)
+
+✅ O evento é mapeado para **`Purchase`** no Meta CAPI (não InitiateCheckout!)  
+✅ Valor do depósito é incluído em `custom_data.value`  
+✅ `event_type` é definido como **`FTD`** automaticamente  
+✅ Códigos PIX são truncados para evitar logs grandes  
+✅ Todos os dados do usuário são processados e hasheados  
+
+### Payload de Exemplo (Outros Cambistas)
+
+```json
+{
+  "type": "deposit_generated",
+  "name": "João Silva",
+  "email": "joao.silva@example.com",
+  "phone": "+5511999999999",
+  "date_birth": "1990-05-10",
+  "ip_address": "200.100.50.10",
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+  "fbp": "fb.1.1700000000.123456789",
+  "fbc": "fb.1.1700000000.ABCDEF123",
+  "usernameIndication": "outro_cambista",
+  "qrCode": "00020126360014BR.GOV.BCB.PIX...",
+  "copiaECola": "00020126580014BR.GOV.BCB.PIX...",
+  "value": 100.50
+}
+```
+
+### O que acontece (Outros Cambistas)
 
 ✅ O evento é mapeado para **`InitiateCheckout`** no Meta CAPI  
 ✅ Valor do depósito é incluído em `custom_data.value`  
-✅ Códigos PIX (QR e Copia e Cola) são truncados para evitar logs grandes  
+✅ Códigos PIX são truncados para evitar logs grandes  
 ✅ Todos os dados do usuário são processados e hasheados  
 
 ### Resposta Esperada
@@ -265,12 +297,13 @@ Ou adicionar no payload:
 
 ## 📊 **Mapeamento de Eventos**
 
-| Tipo do Payload       | Evento no Meta CAPI | Descrição                         |
-| --------------------- | ------------------- | --------------------------------- |
-| `register_new_user`   | `Lead`              | Novo usuário registrado           |
-| `deposit_generated`   | `InitiateCheckout`  | PIX gerado, aguardando pagamento  |
-| `confirmed_deposit`   | `Purchase` (FTD)    | Primeiro depósito confirmado      |
-| `confirmed_deposit`   | ❌ (ignorado)       | Redepósito (first_deposit=false)  |
+| Tipo do Payload       | Evento no Meta CAPI | Descrição                                      |
+| --------------------- | ------------------- | ---------------------------------------------- |
+| `register_new_user`   | `Lead`              | Novo usuário registrado                        |
+| `deposit_generated`   | `Purchase` (FTD)    | **[agenciamidas]** Finalização de compra       |
+| `deposit_generated`   | `InitiateCheckout`  | **[outros]** PIX gerado, aguardando pagamento  |
+| `confirmed_deposit`   | `Purchase` (FTD)    | Primeiro depósito confirmado                   |
+| `confirmed_deposit`   | ❌ (ignorado)       | Redepósito (first_deposit=false)               |
 
 ---
 
