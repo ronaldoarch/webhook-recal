@@ -4,7 +4,8 @@ Node 20 (fetch nativo). Rotas:
 
 - GET `/health`
 - GET `/webhook` (challenge Meta opcional via `hub.mode`, `hub.verify_token`, `hub.challenge`)
-- POST `/webhook`
+- POST `/webhook` (webhook principal)
+- POST `/webhook/fluxlabs` (webhook específico para eventos do FluxLabs)
 
 ### 📋 Novos Payloads de Marketing
 
@@ -20,11 +21,15 @@ Este webhook agora suporta **payloads específicos para eventos de marketing**, 
 - 📖 [PAYLOAD_EXAMPLES.md](./PAYLOAD_EXAMPLES.md) - Exemplos detalhados dos payloads
 - 🎯 [TRACKING_GUIDE.md](./TRACKING_GUIDE.md) - Guia de rastreamento de indicações
 - 🔄 [FLOW_DIAGRAM.md](./FLOW_DIAGRAM.md) - Fluxo visual dos dados
+- 🔗 [FLUXLABS_INTEGRATION.md](./FLUXLABS_INTEGRATION.md) - Integração com FluxLabs
 
 **🧪 Script de teste:** Use `node test-payloads.js <tipo-evento>` para testar os payloads rapidamente.
 
 **🎯 Rastreamento de Indicações:**
 O webhook processa automaticamente o parâmetro `usernameIndication` (capturado de URLs como `?indication=agenciamidas`) e envia como `custom_data.referrer_username` para o Meta, permitindo rastrear a origem de cada conversão.
+
+**🔗 Integração com FluxLabs:**
+O webhook agora suporta receber eventos diretamente do FluxLabs através da rota `/webhook/fluxlabs`. Os eventos são mapeados automaticamente para o formato esperado. Veja [FLUXLABS_INTEGRATION.md](./FLUXLABS_INTEGRATION.md) para mais detalhes.
 
 ### Variáveis de ambiente
 
@@ -33,6 +38,7 @@ O webhook processa automaticamente o parâmetro `usernameIndication` (capturado 
 - `ACCESS_TOKEN` (obrigatória)
 - `VERIFY_TOKEN` (opcional, para GET /webhook)
 - `SHARED_SECRET` (opcional, ativa verificação HMAC do raw body)
+- `FLUXLABS_SECRET` (opcional, ativa verificação HMAC para eventos do FluxLabs)
 - `REDIS_URL` (opcional, para controle de FTD distribuído)
 - `ALLOW_EVENTS` (opcional, filtro de eventos permitidos)
 - `DEPOSIT_EVENT_TYPES` (opcional, aliases customizados para eventos de depósito)

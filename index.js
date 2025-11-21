@@ -733,6 +733,483 @@ app.post("/webhook", async (req, res) => {
   }
 });
 
+/**
+ * Mapeia eventos do FluxLabs para o formato do webhook
+ * O FluxLabs pode enviar eventos em diferentes formatos, então tentamos detectar
+ * e mapear para os tipos suportados: register_new_user, deposit_generated, confirmed_deposit
+ */
+function mapFluxLabsEvent(fluxLabsPayload) {
+  const mapped = { ...fluxLabsPayload };
+  
+  // Detectar tipo de evento do FluxLabs
+  const eventType = (fluxLabsPayload.type || fluxLabsPayload.event_type || fluxLabsPayload.event || "").toString().toLowerCase();
+  const normalizedType = eventType.replace(/[^a-z0-9_]/g, "");
+  
+  // Mapear eventos comuns do FluxLabs
+  // Cadastro/Registro
+  if (normalizedType.includes("register") || normalizedType.includes("signup") || 
+      normalizedType.includes("usercreated") || normalizedType.includes("cadastro")) {
+    mapped.type = "register_new_user";
+  }
+  // Depósito gerado/criado
+  else if (normalizedType.includes("depositgenerated") || normalizedType.includes("deposit_created") ||
+           normalizedType.includes("depositcreated") || normalizedType.includes("depositogenerated") ||
+           normalizedType.includes("pixgenerated") || normalizedType.includes("pix_created")) {
+    mapped.type = "deposit_generated";
+  }
+  // Depósito confirmado/pago
+  else if (normalizedType.includes("depositconfirmed") || normalizedType.includes("deposit_paid") ||
+           normalizedType.includes("depositpaid") || normalizedType.includes("depositoconfirmed") ||
+           normalizedType.includes("pixconfirmed") || normalizedType.includes("pix_paid") ||
+           normalizedType.includes("paymentconfirmed") || normalizedType.includes("payment_confirmed")) {
+    mapped.type = "confirmed_deposit";
+  }
+  
+  // Mapear campos comuns do FluxLabs para o formato esperado
+  // Nome
+  if (fluxLabsPayload.name && !mapped.name) {
+    mapped.name = fluxLabsPayload.name;
+  } else if (fluxLabsPayload.full_name && !mapped.name) {
+    mapped.name = fluxLabsPayload.full_name;
+  } else if (fluxLabsPayload.user_name && !mapped.name) {
+    mapped.name = fluxLabsPayload.user_name;
+  }
+  
+  // Email
+  if (fluxLabsPayload.email && !mapped.email) {
+    mapped.email = fluxLabsPayload.email;
+  } else if (fluxLabsPayload.user_email && !mapped.email) {
+    mapped.email = fluxLabsPayload.user_email;
+  }
+  
+  // Telefone
+  if (fluxLabsPayload.phone && !mapped.phone) {
+    mapped.phone = fluxLabsPayload.phone;
+  } else if (fluxLabsPayload.telephone && !mapped.phone) {
+    mapped.phone = fluxLabsPayload.telephone;
+  } else if (fluxLabsPayload.mobile && !mapped.phone) {
+    mapped.phone = fluxLabsPayload.mobile;
+  }
+  
+  // Data de nascimento
+  if (fluxLabsPayload.date_birth && !mapped.date_birth) {
+    mapped.date_birth = fluxLabsPayload.date_birth;
+  } else if (fluxLabsPayload.birth_date && !mapped.date_birth) {
+    mapped.date_birth = fluxLabsPayload.birth_date;
+  } else if (fluxLabsPayload.date_of_birth && !mapped.date_birth) {
+    mapped.date_birth = fluxLabsPayload.date_of_birth;
+  }
+  
+  // Valor (para depósitos)
+  if (fluxLabsPayload.value !== undefined && mapped.value === undefined) {
+    mapped.value = fluxLabsPayload.value;
+  } else if (fluxLabsPayload.amount !== undefined && mapped.value === undefined) {
+    mapped.value = fluxLabsPayload.amount;
+  } else if (fluxLabsPayload.deposit_amount !== undefined && mapped.value === undefined) {
+    mapped.value = fluxLabsPayload.deposit_amount;
+  }
+  
+  // IP Address
+  if (fluxLabsPayload.ip_address && !mapped.ip_address) {
+    mapped.ip_address = fluxLabsPayload.ip_address;
+  } else if (fluxLabsPayload.ip && !mapped.ip_address) {
+    mapped.ip_address = fluxLabsPayload.ip;
+  } else if (fluxLabsPayload.client_ip && !mapped.ip_address) {
+    mapped.ip_address = fluxLabsPayload.client_ip;
+  }
+  
+  // User Agent
+  if (fluxLabsPayload.user_agent && !mapped.user_agent) {
+    mapped.user_agent = fluxLabsPayload.user_agent;
+  } else if (fluxLabsPayload.userAgent && !mapped.user_agent) {
+    mapped.user_agent = fluxLabsPayload.userAgent;
+  }
+  
+  // First Deposit
+  if (fluxLabsPayload.first_deposit !== undefined && mapped.first_deposit === undefined) {
+    mapped.first_deposit = fluxLabsPayload.first_deposit;
+  } else if (fluxLabsPayload.is_first_deposit !== undefined && mapped.first_deposit === undefined) {
+    mapped.first_deposit = fluxLabsPayload.is_first_deposit;
+  } else if (fluxLabsPayload.isFirstDeposit !== undefined && mapped.first_deposit === undefined) {
+    mapped.first_deposit = fluxLabsPayload.isFirstDeposit;
+  }
+  
+  // Username Indication / Referrer
+  if (fluxLabsPayload.usernameIndication && !mapped.usernameIndication) {
+    mapped.usernameIndication = fluxLabsPayload.usernameIndication;
+  } else if (fluxLabsPayload.referrer && !mapped.usernameIndication) {
+    mapped.usernameIndication = fluxLabsPayload.referrer;
+  } else if (fluxLabsPayload.affiliate && !mapped.usernameIndication) {
+    mapped.usernameIndication = fluxLabsPayload.affiliate;
+  } else if (fluxLabsPayload.indication && !mapped.usernameIndication) {
+    mapped.usernameIndication = fluxLabsPayload.indication;
+  }
+  
+  // UTM Parameters
+  if (fluxLabsPayload.utm_source && !mapped.utm_source) {
+    mapped.utm_source = fluxLabsPayload.utm_source;
+  }
+  if (fluxLabsPayload.utm_campaign && !mapped.utm_campaign) {
+    mapped.utm_campaign = fluxLabsPayload.utm_campaign;
+  }
+  if (fluxLabsPayload.utm_medium && !mapped.utm_medium) {
+    mapped.utm_medium = fluxLabsPayload.utm_medium;
+  }
+  
+  // PIX QR Code / Copy Paste
+  if (fluxLabsPayload.qrCode && !mapped.qrCode) {
+    mapped.qrCode = fluxLabsPayload.qrCode;
+  } else if (fluxLabsPayload.qr_code && !mapped.qrCode) {
+    mapped.qrCode = fluxLabsPayload.qr_code;
+  }
+  
+  if (fluxLabsPayload.copiaECola && !mapped.copiaECola) {
+    mapped.copiaECola = fluxLabsPayload.copiaECola;
+  } else if (fluxLabsPayload.copy_paste && !mapped.copiaECola) {
+    mapped.copiaECola = fluxLabsPayload.copy_paste;
+  } else if (fluxLabsPayload.pix_copy_paste && !mapped.copiaECola) {
+    mapped.copiaECola = fluxLabsPayload.pix_copy_paste;
+  }
+  
+  // User ID / External ID
+  if (fluxLabsPayload.user_id && !mapped.user_id) {
+    mapped.user_id = fluxLabsPayload.user_id;
+  } else if (fluxLabsPayload.userId && !mapped.user_id) {
+    mapped.user_id = fluxLabsPayload.userId;
+  } else if (fluxLabsPayload.customer_id && !mapped.user_id) {
+    mapped.user_id = fluxLabsPayload.customer_id;
+  }
+  
+  // Approved Deposits
+  if (fluxLabsPayload.approved_deposits !== undefined && mapped.approved_deposits === undefined) {
+    mapped.approved_deposits = fluxLabsPayload.approved_deposits;
+  } else if (fluxLabsPayload.total_deposits !== undefined && mapped.approved_deposits === undefined) {
+    mapped.approved_deposits = fluxLabsPayload.total_deposits;
+  }
+  
+  return mapped;
+}
+
+/**
+ * POST /webhook/fluxlabs
+ * Rota específica para receber eventos do FluxLabs
+ * O FluxLabs pode enviar eventos em seu próprio formato, que serão mapeados automaticamente
+ */
+app.post("/webhook/fluxlabs", async (req, res) => {
+  try {
+    // Verificar autenticação se necessário (pode ser diferente do webhook principal)
+    const fluxLabsSecret = process.env.FLUXLABS_SECRET || "";
+    if (fluxLabsSecret) {
+      const raw = req.rawBodyBuffer || Buffer.from(req.rawBody || "", "utf8");
+      const ver = verifyHmac(req, raw, fluxLabsSecret);
+      if (ver !== true && ver.ok === false) {
+        console.log(JSON.stringify({ 
+          level: "warn", 
+          msg: "fluxlabs_auth_fail", 
+          reason: ver.reason 
+        }));
+        return res.status(401).json({ ok: false, error: ver.reason });
+      }
+    }
+    
+    // Detectar modo teste
+    const isTest =
+      req.query.test === "true" ||
+      req.headers["x-webhook-test"] === "true" ||
+      (req.body && (req.body.test === true || req.body.type === "webhook.test"));
+    
+    if (isTest) {
+      console.log(JSON.stringify({ 
+        level: "info", 
+        msg: "fluxlabs_webhook_test_received",
+        payload: req.body 
+      }));
+      return res.status(200).json({ ok: true, test: true, source: "fluxlabs" });
+    }
+    
+    if (!PIXEL_ID || !ACCESS_TOKEN) {
+      return res.status(500).json({ ok: false, error: "missing_pixel_or_token" });
+    }
+    
+    // Mapear evento do FluxLabs para o formato do webhook
+    const fluxLabsPayload = req.body || {};
+    const mappedPayload = mapFluxLabsEvent(fluxLabsPayload);
+    
+    console.log(JSON.stringify({
+      level: "info",
+      msg: "fluxlabs_event_received",
+      original_type: fluxLabsPayload.type || fluxLabsPayload.event_type || fluxLabsPayload.event,
+      mapped_type: mappedPayload.type,
+      has_user_data: !!(mappedPayload.email || mappedPayload.phone || mappedPayload.name)
+    }));
+    
+    // Substituir req.body pelo payload mapeado e processar como webhook normal
+    req.body = mappedPayload;
+    
+    // Reutilizar a lógica do webhook principal
+    const p = req.body || {};
+    
+    // Processar eventos específicos (mesma lógica do webhook principal)
+    const eventType = (p.type || "").toString().toLowerCase().replace(/[^a-z0-9_]/g, "");
+    
+    if (eventType === "register_new_user") {
+      p.event_name = "Lead";
+      p.user_data = p.user_data || {};
+      
+      if (p.email && !p.user_data.email) p.user_data.email = p.email;
+      if (p.phone && !p.user_data.phone) p.user_data.phone = p.phone;
+      if (p.name) {
+        const nameParts = p.name.trim().split(" ");
+        if (!p.user_data.fn) p.user_data.fn = nameParts[0];
+        if (!p.user_data.ln && nameParts.length > 1) {
+          p.user_data.ln = nameParts.slice(1).join(" ");
+        }
+      }
+      if (p.date_birth && !p.user_data.db) {
+        p.user_data.db = p.date_birth.replace(/-/g, "");
+      }
+      if (p.ip_address && !p.user_data.client_ip_address) {
+        p.user_data.client_ip_address = p.ip_address;
+      }
+      if (p.user_agent && !p.user_data.client_user_agent) {
+        p.user_data.client_user_agent = p.user_agent;
+      }
+      
+      p.custom_data = p.custom_data || {};
+      if (p.usernameIndication) p.custom_data.referrer_username = p.usernameIndication;
+      if (p.origem_cid) p.custom_data.origem_cid = p.origem_cid;
+      if (p.utm_source) p.custom_data.utm_source = p.utm_source;
+      if (p.utm_campaign) p.custom_data.utm_campaign = p.utm_campaign;
+      if (p.utm_medium) p.custom_data.utm_medium = p.utm_medium;
+      
+      if (!p.event_source_url) {
+        p.event_source_url = "https://betbelga.com/cadastro";
+      }
+      
+      console.log(JSON.stringify({
+        level: "info",
+        msg: "fluxlabs_register_new_user_processed",
+        email: p.email ? "***" : null,
+        phone: p.phone ? "***" : null
+      }));
+    }
+    else if (eventType === "deposit_generated") {
+      const isAgenciaMidas = p.usernameIndication === "agenciamidas";
+      
+      if (isAgenciaMidas) {
+        p.event_name = "Purchase";
+      } else {
+        p.event_name = "InitiateCheckout";
+      }
+      
+      p.user_data = p.user_data || {};
+      
+      if (p.email && !p.user_data.email) p.user_data.email = p.email;
+      if (p.phone && !p.user_data.phone) p.user_data.phone = p.phone;
+      if (p.name) {
+        const nameParts = p.name.trim().split(" ");
+        if (!p.user_data.fn) p.user_data.fn = nameParts[0];
+        if (!p.user_data.ln && nameParts.length > 1) {
+          p.user_data.ln = nameParts.slice(1).join(" ");
+        }
+      }
+      if (p.date_birth && !p.user_data.db) {
+        p.user_data.db = p.date_birth.replace(/-/g, "");
+      }
+      if (p.ip_address && !p.user_data.client_ip_address) {
+        p.user_data.client_ip_address = p.ip_address;
+      }
+      if (p.user_agent && !p.user_data.client_user_agent) {
+        p.user_data.client_user_agent = p.user_agent;
+      }
+      
+      p.custom_data = p.custom_data || {};
+      if (p.value !== undefined) {
+        p.custom_data.value = coerceNumber(p.value);
+        p.custom_data.currency = "BRL";
+      }
+      if (p.qrCode) p.custom_data.pix_qr_code = p.qrCode.substring(0, 50) + "...";
+      if (p.copiaECola) p.custom_data.pix_copy_paste = p.copiaECola.substring(0, 50) + "...";
+      if (p.usernameIndication) p.custom_data.referrer_username = p.usernameIndication;
+      
+      if (isAgenciaMidas) {
+        p.custom_data.event_type = "FTD";
+      }
+      
+      if (!p.event_source_url) {
+        if (isAgenciaMidas) {
+          p.event_source_url = "https://betbelga.com/deposito/sucesso";
+        } else {
+          p.event_source_url = "https://betbelga.com/deposito";
+        }
+      }
+      
+      console.log(JSON.stringify({
+        level: "info",
+        msg: "fluxlabs_deposit_generated_processed",
+        value: p.value,
+        cambista: p.usernameIndication || null,
+        event_type: isAgenciaMidas ? "Purchase" : "InitiateCheckout"
+      }));
+    }
+    else if (eventType === "confirmed_deposit") {
+      p.event_name = "Purchase";
+      p.user_data = p.user_data || {};
+      
+      if (p.email && !p.user_data.email) p.user_data.email = p.email;
+      if (p.phone && !p.user_data.phone) p.user_data.phone = p.phone;
+      if (p.name) {
+        const nameParts = p.name.trim().split(" ");
+        if (!p.user_data.fn) p.user_data.fn = nameParts[0];
+        if (!p.user_data.ln && nameParts.length > 1) {
+          p.user_data.ln = nameParts.slice(1).join(" ");
+        }
+      }
+      if (p.date_birth && !p.user_data.db) {
+        p.user_data.db = p.date_birth.replace(/-/g, "");
+      }
+      if (p.ip_address && !p.user_data.client_ip_address) {
+        p.user_data.client_ip_address = p.ip_address;
+      }
+      if (p.user_agent && !p.user_data.client_user_agent) {
+        p.user_data.client_user_agent = p.user_agent;
+      }
+      
+      p.custom_data = p.custom_data || {};
+      if (p.value !== undefined) {
+        p.custom_data.value = coerceNumber(p.value);
+        p.custom_data.currency = "BRL";
+      }
+      
+      const isFirstDeposit = parseBoolLike(p.first_deposit);
+      if (isFirstDeposit === true) {
+        p.custom_data.event_type = "FTD";
+      } else {
+        p.custom_data.event_type = "REDEPOSIT";
+        console.log(JSON.stringify({
+          level: "info",
+          msg: "fluxlabs_redeposit_from_confirmed_deposit",
+          approved_deposits: p.approved_deposits
+        }));
+        return res.status(200).json({
+          ok: true,
+          ignored: true,
+          reason: "redeposit_ignored",
+          approved_deposits: p.approved_deposits,
+          source: "fluxlabs"
+        });
+      }
+      
+      if (p.approved_deposits !== undefined) {
+        p.custom_data.approved_deposits = p.approved_deposits;
+      }
+      if (p.usernameIndication) {
+        p.custom_data.referrer_username = p.usernameIndication;
+      }
+      
+      if (!p.event_source_url) {
+        p.event_source_url = "https://betbelga.com/deposito/sucesso";
+      }
+      
+      console.log(JSON.stringify({
+        level: "info",
+        msg: "fluxlabs_confirmed_deposit_processed",
+        value: p.value,
+        event_type: p.custom_data.event_type,
+        approved_deposits: p.approved_deposits
+      }));
+    }
+    
+    // Se não mapeou para nenhum tipo específico, tentar mapeamento genérico
+    if (!p.event_name) {
+      const raw = (p.type || p.event || "").toString().toLowerCase();
+      const t = raw.replace(/[^a-z0-9]/g, "");
+      const registerAliases = new Set([
+        "userregister",
+        "userregistered",
+        "usercreated",
+        "signup",
+        "registered",
+        "registrationcompleted",
+        "onlineregisteraccount",
+      ]);
+      if (registerAliases.has(t)) {
+        p.event_name = "Lead";
+      }
+    }
+    
+    // Aplicar filtro por eventos permitidos
+    if (p.event_name && !onlyAllowed(p.event_name)) {
+      console.log(JSON.stringify({ 
+        level: "info", 
+        msg: "fluxlabs_event_blocked", 
+        event_name: p.event_name 
+      }));
+      return res.status(200).json({ 
+        ok: true, 
+        ignored: true, 
+        reason: "event_blocked", 
+        event_name: p.event_name || null,
+        source: "fluxlabs"
+      });
+    }
+    
+    // Montar user_data se necessário
+    if (p.event_name === "Lead") {
+      p.user_data = p.user_data || {};
+      if (!p.user_data.email && p.email) p.user_data.email = p.email;
+      if (!p.user_data.phone && p.phone) p.user_data.phone = p.phone;
+      if (!p.user_data.external_id) {
+        const ext = p.user_id || p.id || p.username;
+        if (ext !== undefined && ext !== null) p.user_data.external_id = String(ext);
+      }
+      if (!p.event_source_url) {
+        p.event_source_url = "https://betbelga.com/form";
+      }
+    }
+    
+    // Mapear e enviar para Meta CAPI
+    const mapped = mapEvent(p, req);
+    if (mapped.error) {
+      if (mapped.error === "invalid_purchase_payload") {
+        return res.status(400).json({ ok: false, error: mapped.error, source: "fluxlabs" });
+      }
+      return res.status(400).json({ ok: false, error: mapped.error, source: "fluxlabs" });
+    }
+    
+    try {
+      const result = await sendToMetaCAPI(mapped.payload);
+      console.log(JSON.stringify({
+        level: "info",
+        msg: "fluxlabs_capi_result",
+        event_name: mapped.mapped_event_name,
+        event_id: mapped.event_id,
+        capi_status: result.status,
+        events_received: result.data?.events_received ?? null,
+        event_type: (mapped.payload?.data?.[0]?.custom_data?.event_type) || null
+      }));
+      return res.status(200).json({ 
+        ok: true, 
+        event_id: mapped.event_id, 
+        capi_status: result.status, 
+        events_received: mapped.payload?.data?.length || 0, 
+        capi_response: result.data,
+        source: "fluxlabs"
+      });
+    } catch (_e) {
+      return res.status(500).json({ ok: false, error: "capi_request_failed", source: "fluxlabs" });
+    }
+  } catch (error) {
+    console.error(JSON.stringify({
+      level: "error",
+      msg: "fluxlabs_webhook_error",
+      error: error.message,
+      stack: error.stack
+    }));
+    return res.status(500).json({ ok: false, error: "internal_error", source: "fluxlabs" });
+  }
+});
+
 // Erros
 app.use((err, _req, res, _next) => {
   console.error("Erro:", err);
