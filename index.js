@@ -517,12 +517,29 @@ app.post("/webhook", async (req, res) => {
   const p = req.body || {};
 
   // ===== PROCESSAMENTO ESPECÍFICO DOS EVENTOS DE MARKETING =====
-  // Detectar e processar eventos baseados no campo "type"
-  const eventType = (p.type || "").toString().toLowerCase().replace(/[^a-z0-9_]/g, "");
+  // Detectar e processar eventos baseados no campo "type", "action" ou "event"
+  // Prioridade: type > action > event
+  const eventTypeRaw = p.type || p.action || p.event || "";
+  const eventType = eventTypeRaw.toString().toLowerCase().replace(/[^a-z0-9_]/g, "");
   
-  if (eventType === "register_new_user") {
+  // Mapear user_created (action) para register_new_user (type interno)
+  if (eventType === "user_created" || eventType === "register_new_user") {
     // Evento: Novo usuário registrado
     p.event_name = "Lead";
+    
+    // Extrair dados de objetos aninhados se vierem no formato {action, user, ...}
+    if (p.user && typeof p.user === "object") {
+      if (!p.email && p.user.email) p.email = p.user.email;
+      if (!p.name && p.user.name) p.name = p.user.name;
+      if (!p.phone && p.user.phone_number) p.phone = p.user.phone_number;
+      if (!p.date_birth && p.user.date_of_birth) p.date_birth = p.user.date_of_birth;
+      if (!p.user_id && p.user.id) p.user_id = p.user.id;
+      if (!p.usernameIndication && p.user.affiliation_code) {
+        // affiliation_code pode ser usado como usernameIndication
+        p.usernameIndication = p.user.affiliation_code;
+      }
+    }
+    
     p.user_data = p.user_data || {};
     
     // Mapear dados do usuário
@@ -646,9 +663,36 @@ app.post("/webhook", async (req, res) => {
       event_type: isAgenciaMidas ? "Purchase" : "InitiateCheckout"
     }));
   }
-  else if (eventType === "confirmed_deposit") {
+  else if (eventType === "confirmed_deposit" || eventType === "invoice_paid") {
     // Evento: Depósito confirmado (pagamento recebido)
+    // invoice_paid também é mapeado para confirmed_deposit
     p.event_name = "Purchase";
+    
+    // Extrair dados de objetos aninhados se vierem no formato {action, user, invoice, client, payer}
+    if (p.user && typeof p.user === "object") {
+      if (!p.email && p.user.email) p.email = p.user.email;
+      if (!p.name && p.user.name) p.name = p.user.name;
+      if (!p.phone && p.user.phone_number) p.phone = p.user.phone_number;
+      if (!p.date_birth && p.user.date_of_birth) p.date_birth = p.user.date_of_birth;
+      if (!p.user_id && p.user.id) p.user_id = p.user.id;
+    }
+    if (p.invoice && typeof p.invoice === "object") {
+      if (p.invoice.value !== undefined && p.value === undefined) p.value = p.invoice.value;
+      if (p.invoice.id && !p.deposit_id) p.deposit_id = p.invoice.id;
+      if (p.invoice.status && p.invoice.status === "paid" && p.first_deposit === undefined) {
+        // Se não tiver first_deposit explícito, tentar inferir
+        // Por padrão, assumimos que é FTD se não houver informação contrária
+      }
+    }
+    if (p.client && typeof p.client === "object") {
+      if (!p.email && p.client.email) p.email = p.client.email;
+      if (!p.name && p.client.name) p.name = p.client.name;
+      if (!p.phone && p.client.phone) p.phone = p.client.phone;
+    }
+    if (p.payer && typeof p.payer === "object") {
+      if (!p.name && p.payer.name) p.name = p.payer.name;
+      if (!p.phone && p.payer.phone) p.phone = p.payer.phone;
+    }
     p.user_data = p.user_data || {};
     
     // Mapear dados do usuário
@@ -726,7 +770,8 @@ app.post("/webhook", async (req, res) => {
 
   // Mapear eventos de cadastro -> Lead (se não vier event_name explicitamente)
   if (!p.event_name) {
-    const raw = (p.type || p.event || "").toString().toLowerCase();
+    // Prioridade: type > action > event
+    const raw = (p.type || p.action || p.event || "").toString().toLowerCase();
     // normaliza removendo caracteres não alfanuméricos (hífens, underscores, pontos)
     const t = raw.replace(/[^a-z0-9]/g, "");
     // aceitar várias nomenclaturas comuns de cadastro
@@ -921,7 +966,8 @@ function mapFluxLabsEvent(fluxLabsPayload) {
   const mapped = { ...fluxLabsPayload };
   
   // Detectar tipo de evento do FluxLabs
-  const eventType = (fluxLabsPayload.type || fluxLabsPayload.event_type || fluxLabsPayload.event || "").toString().toLowerCase();
+  // Prioridade: type > action > event_type > event
+  const eventType = (fluxLabsPayload.type || fluxLabsPayload.action || fluxLabsPayload.event_type || fluxLabsPayload.event || "").toString().toLowerCase();
   const normalizedType = eventType.replace(/[^a-z0-9_]/g, "");
   
   // Mapear eventos comuns do FluxLabs
@@ -940,7 +986,8 @@ function mapFluxLabsEvent(fluxLabsPayload) {
   else if (normalizedType.includes("depositconfirmed") || normalizedType.includes("deposit_paid") ||
            normalizedType.includes("depositpaid") || normalizedType.includes("depositoconfirmed") ||
            normalizedType.includes("pixconfirmed") || normalizedType.includes("pix_paid") ||
-           normalizedType.includes("paymentconfirmed") || normalizedType.includes("payment_confirmed")) {
+           normalizedType.includes("paymentconfirmed") || normalizedType.includes("payment_confirmed") ||
+           normalizedType.includes("invoicepaid") || normalizedType.includes("invoice_paid")) {
     mapped.type = "confirmed_deposit";
   }
   
@@ -1127,7 +1174,7 @@ app.post("/webhook/fluxlabs", async (req, res) => {
     console.log(JSON.stringify({
       level: "info",
       msg: "fluxlabs_event_received",
-      original_type: fluxLabsPayload.type || fluxLabsPayload.event_type || fluxLabsPayload.event,
+      original_type: fluxLabsPayload.type || fluxLabsPayload.action || fluxLabsPayload.event_type || fluxLabsPayload.event,
       mapped_type: mappedPayload.type,
       has_user_data: !!(mappedPayload.email || mappedPayload.phone || mappedPayload.name)
     }));
@@ -1139,10 +1186,26 @@ app.post("/webhook/fluxlabs", async (req, res) => {
     const p = req.body || {};
     
     // Processar eventos específicos (mesma lógica do webhook principal)
-    const eventType = (p.type || "").toString().toLowerCase().replace(/[^a-z0-9_]/g, "");
+    // Prioridade: type > action > event
+    const eventTypeRaw = p.type || p.action || p.event || "";
+    const eventType = eventTypeRaw.toString().toLowerCase().replace(/[^a-z0-9_]/g, "");
     
-    if (eventType === "register_new_user") {
+    // Mapear user_created (action) para register_new_user (type interno)
+    if (eventType === "user_created" || eventType === "register_new_user") {
       p.event_name = "Lead";
+      
+      // Extrair dados de objetos aninhados se vierem no formato {action, user, ...}
+      if (p.user && typeof p.user === "object") {
+        if (!p.email && p.user.email) p.email = p.user.email;
+        if (!p.name && p.user.name) p.name = p.user.name;
+        if (!p.phone && p.user.phone_number) p.phone = p.user.phone_number;
+        if (!p.date_birth && p.user.date_of_birth) p.date_birth = p.user.date_of_birth;
+        if (!p.user_id && p.user.id) p.user_id = p.user.id;
+        if (!p.usernameIndication && p.user.affiliation_code) {
+          p.usernameIndication = p.user.affiliation_code;
+        }
+      }
+      
       p.user_data = p.user_data || {};
       
       if (p.email && !p.user_data.email) p.user_data.email = p.email;
@@ -1241,8 +1304,33 @@ app.post("/webhook/fluxlabs", async (req, res) => {
         event_type: isAgenciaMidas ? "Purchase" : "InitiateCheckout"
       }));
     }
-    else if (eventType === "confirmed_deposit") {
+    else if (eventType === "confirmed_deposit" || eventType === "invoice_paid") {
+      // Evento: Depósito confirmado (pagamento recebido)
+      // invoice_paid também é mapeado para confirmed_deposit
       p.event_name = "Purchase";
+      
+      // Extrair dados de objetos aninhados se vierem no formato {action, user, invoice, client, payer}
+      if (p.user && typeof p.user === "object") {
+        if (!p.email && p.user.email) p.email = p.user.email;
+        if (!p.name && p.user.name) p.name = p.user.name;
+        if (!p.phone && p.user.phone_number) p.phone = p.user.phone_number;
+        if (!p.date_birth && p.user.date_of_birth) p.date_birth = p.user.date_of_birth;
+        if (!p.user_id && p.user.id) p.user_id = p.user.id;
+      }
+      if (p.invoice && typeof p.invoice === "object") {
+        if (p.invoice.value !== undefined && p.value === undefined) p.value = p.invoice.value;
+        if (p.invoice.id && !p.deposit_id) p.deposit_id = p.invoice.id;
+      }
+      if (p.client && typeof p.client === "object") {
+        if (!p.email && p.client.email) p.email = p.client.email;
+        if (!p.name && p.client.name) p.name = p.client.name;
+        if (!p.phone && p.client.phone) p.phone = p.client.phone;
+      }
+      if (p.payer && typeof p.payer === "object") {
+        if (!p.name && p.payer.name) p.name = p.payer.name;
+        if (!p.phone && p.payer.phone) p.phone = p.payer.phone;
+      }
+      
       p.user_data = p.user_data || {};
       
       if (p.email && !p.user_data.email) p.user_data.email = p.email;
@@ -1311,7 +1399,8 @@ app.post("/webhook/fluxlabs", async (req, res) => {
     
     // Se não mapeou para nenhum tipo específico, tentar mapeamento genérico
     if (!p.event_name) {
-      const raw = (p.type || p.event || "").toString().toLowerCase();
+      // Prioridade: type > action > event
+      const raw = (p.type || p.action || p.event || "").toString().toLowerCase();
       const t = raw.replace(/[^a-z0-9]/g, "");
       const registerAliases = new Set([
         "userregister",
