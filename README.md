@@ -22,6 +22,7 @@ Este webhook agora suporta **payloads específicos para eventos de marketing**, 
 - 🎯 [TRACKING_GUIDE.md](./TRACKING_GUIDE.md) - Guia de rastreamento de indicações
 - 🔄 [FLOW_DIAGRAM.md](./FLOW_DIAGRAM.md) - Fluxo visual dos dados
 - 🔗 [FLUXLABS_INTEGRATION.md](./FLUXLABS_INTEGRATION.md) - Integração com FluxLabs
+- 🎯 [MULTIPLE_PIXELS.md](./MULTIPLE_PIXELS.md) - Configuração de múltiplos pixels
 
 **🧪 Script de teste:** Use `node test-payloads.js <tipo-evento>` para testar os payloads rapidamente.
 
@@ -31,11 +32,39 @@ O webhook processa automaticamente o parâmetro `usernameIndication` (capturado 
 **🔗 Integração com FluxLabs:**
 O webhook agora suporta receber eventos diretamente do FluxLabs através da rota `/webhook/fluxlabs`. Os eventos são mapeados automaticamente para o formato esperado. Veja [FLUXLABS_INTEGRATION.md](./FLUXLABS_INTEGRATION.md) para mais detalhes.
 
+**🎯 Múltiplos Pixels:**
+O webhook suporta múltiplos pixels do Meta simultaneamente. Você pode configurar quais pixels recebem eventos do FluxLabs e quais recebem eventos gerais. Veja [MULTIPLE_PIXELS.md](./MULTIPLE_PIXELS.md) para mais detalhes.
+
 ### Variáveis de ambiente
 
+#### Configuração Básica (Pixel Único - Compatibilidade)
 - `PORT` (definida pela plataforma)
-- `PIXEL_ID` (obrigatória)
-- `ACCESS_TOKEN` (obrigatória)
+- `PIXEL_ID` (obrigatória se não usar múltiplos pixels)
+- `ACCESS_TOKEN` (obrigatória se não usar múltiplos pixels)
+- `PIXEL_NAME` (opcional, nome do pixel)
+- `PIXEL_HAS_FLUXLABS` (opcional, "true" se o pixel tem FluxLabs)
+
+#### Configuração de Múltiplos Pixels
+
+**Opção 1: JSON String (Recomendado)**
+```bash
+PIXELS='[{"id":"123456","token":"abc123","name":"Pixel Principal","has_fluxlabs":true},{"id":"789012","token":"def456","name":"Pixel Secundário","has_fluxlabs":false}]'
+```
+
+**Opção 2: Variáveis Individuais**
+```bash
+PIXEL_ID_1=123456
+ACCESS_TOKEN_1=abc123
+PIXEL_NAME_1=Pixel Principal
+PIXEL_HAS_FLUXLABS_1=true
+
+PIXEL_ID_2=789012
+ACCESS_TOKEN_2=def456
+PIXEL_NAME_2=Pixel Secundário
+PIXEL_HAS_FLUXLABS_2=false
+```
+
+#### Outras Variáveis
 - `VERIFY_TOKEN` (opcional, para GET /webhook)
 - `SHARED_SECRET` (opcional, ativa verificação HMAC do raw body)
 - `FLUXLABS_SECRET` (opcional, ativa verificação HMAC para eventos do FluxLabs)

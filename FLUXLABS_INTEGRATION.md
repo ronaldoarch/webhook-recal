@@ -293,6 +293,76 @@ O webhook registra logs específicos para eventos do FluxLabs:
 
 ---
 
+## ⚙️ Configuração de Múltiplos Pixels
+
+O webhook suporta múltiplos pixels do Meta. Você pode configurar quais pixels têm FluxLabs habilitado.
+
+### Configuração via JSON (Recomendado)
+
+```bash
+PIXELS='[
+  {
+    "id": "123456789",
+    "token": "seu_token_aqui",
+    "name": "Pixel Principal",
+    "has_fluxlabs": true
+  },
+  {
+    "id": "987654321",
+    "token": "outro_token_aqui",
+    "name": "Pixel Secundário",
+    "has_fluxlabs": false
+  }
+]'
+```
+
+### Configuração via Variáveis Individuais
+
+```bash
+# Pixel 1 (com FluxLabs)
+PIXEL_ID_1=123456789
+ACCESS_TOKEN_1=seu_token_aqui
+PIXEL_NAME_1=Pixel Principal
+PIXEL_HAS_FLUXLABS_1=true
+
+# Pixel 2 (sem FluxLabs)
+PIXEL_ID_2=987654321
+ACCESS_TOKEN_2=outro_token_aqui
+PIXEL_NAME_2=Pixel Secundário
+PIXEL_HAS_FLUXLABS_2=false
+```
+
+### Como Funciona
+
+- **Rota `/webhook`**: Envia eventos para **todos os pixels** configurados
+- **Rota `/webhook/fluxlabs`**: Envia eventos apenas para pixels com `has_fluxlabs: true`
+
+### Especificar Pixels no Payload (Opcional)
+
+Você pode especificar quais pixels receberão o evento:
+
+```json
+{
+  "type": "register_new_user",
+  "name": "João Silva",
+  "email": "joao@example.com",
+  "pixel_ids": ["123456789", "987654321"]
+}
+```
+
+Ou:
+
+```json
+{
+  "type": "register_new_user",
+  "name": "João Silva",
+  "email": "joao@example.com",
+  "pixels": ["123456789"]
+}
+```
+
+---
+
 ## 🔧 Configuração no FluxLabs
 
 ### Passo 1: Acessar Configurações de Webhook

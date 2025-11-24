@@ -13,8 +13,86 @@ const PIXEL_ID = process.env.PIXEL_ID;
 const ACCESS_TOKEN = process.env.ACCESS_TOKEN;
 const REDIS_URL = process.env.REDIS_URL;
 
-if (!PIXEL_ID || !ACCESS_TOKEN) {
-  console.error("Faltam variáveis PIXEL_ID e/ou ACCESS_TOKEN");
+// Sistema de múltiplos pixels
+// Formato: JSON string com array de pixels
+// Exemplo: [{"id":"123","token":"abc","name":"Pixel 1","has_fluxlabs":true},{"id":"456","token":"def","name":"Pixel 2","has_fluxlabs":false}]
+// Ou usar variáveis individuais: PIXEL_ID_1, ACCESS_TOKEN_1, PIXEL_NAME_1, PIXEL_HAS_FLUXLABS_1, etc.
+let PIXELS_CONFIG = [];
+
+function loadPixelsConfig() {
+  try {
+    // Tentar carregar de PIXELS (JSON string)
+    if (process.env.PIXELS) {
+      const parsed = JSON.parse(process.env.PIXELS);
+      if (Array.isArray(parsed)) {
+        PIXELS_CONFIG = parsed.map(p => ({
+          id: p.id || p.pixel_id,
+          token: p.token || p.access_token,
+          name: p.name || p.id || p.pixel_id || "Pixel",
+          has_fluxlabs: p.has_fluxlabs === true || p.has_fluxlabs === "true" || p.hasFluxlabs === true
+        })).filter(p => p.id && p.token);
+        return;
+      }
+    }
+    
+    // Tentar carregar de variáveis individuais (PIXEL_ID_1, ACCESS_TOKEN_1, etc.)
+    const pixels = [];
+    let i = 1;
+    while (true) {
+      const pixelId = process.env[`PIXEL_ID_${i}`];
+      const accessToken = process.env[`ACCESS_TOKEN_${i}`];
+      if (!pixelId || !accessToken) break;
+      
+      const pixelName = process.env[`PIXEL_NAME_${i}`] || `Pixel ${i}`;
+      const hasFluxlabs = process.env[`PIXEL_HAS_FLUXLABS_${i}`] === "true" || 
+                         process.env[`PIXEL_HAS_FLUXLABS_${i}`] === true;
+      
+      pixels.push({
+        id: pixelId,
+        token: accessToken,
+        name: pixelName,
+        has_fluxlabs: hasFluxlabs
+      });
+      i++;
+    }
+    
+    if (pixels.length > 0) {
+      PIXELS_CONFIG = pixels;
+      return;
+    }
+    
+    // Fallback: usar PIXEL_ID e ACCESS_TOKEN únicos (compatibilidade)
+    if (PIXEL_ID && ACCESS_TOKEN) {
+      PIXELS_CONFIG = [{
+        id: PIXEL_ID,
+        token: ACCESS_TOKEN,
+        name: process.env.PIXEL_NAME || "Pixel Principal",
+        has_fluxlabs: process.env.PIXEL_HAS_FLUXLABS === "true" || false
+      }];
+    }
+  } catch (err) {
+    console.error("Erro ao carregar configuração de pixels:", err.message);
+    // Fallback para configuração única
+    if (PIXEL_ID && ACCESS_TOKEN) {
+      PIXELS_CONFIG = [{
+        id: PIXEL_ID,
+        token: ACCESS_TOKEN,
+        name: "Pixel Principal",
+        has_fluxlabs: false
+      }];
+    }
+  }
+}
+
+loadPixelsConfig();
+
+if (PIXELS_CONFIG.length === 0) {
+  console.error("⚠️  Nenhum pixel configurado! Configure PIXEL_ID/ACCESS_TOKEN ou PIXELS");
+} else {
+  console.log(`✅ ${PIXELS_CONFIG.length} pixel(s) configurado(s):`);
+  PIXELS_CONFIG.forEach((p, i) => {
+    console.log(`   ${i + 1}. ${p.name} (ID: ${p.id}) - FluxLabs: ${p.has_fluxlabs ? 'Sim' : 'Não'}`);
+  });
 }
 
 app.use(async (req, _res, next) => {
@@ -231,15 +309,68 @@ function parseEventTimeToSeconds(v) {
   return undefined;
 }
 
-async function sendToMetaCAPI(payload) {
-  const url = `https://graph.facebook.com/v18.0/${PIXEL_ID}/events?access_token=${encodeURIComponent(ACCESS_TOKEN)}`;
+/**
+ * Envia evento para um pixel específico do Meta CAPI
+ * @param {Object} payload - Payload do evento
+ * @param {string} pixelId - ID do pixel
+ * @param {string} accessToken - Token de acesso
+ * @returns {Promise<Object>} Resultado do envio
+ */
+async function sendToMetaCAPI(payload, pixelId = null, accessToken = null) {
+  const pid = pixelId || PIXEL_ID;
+  const token = accessToken || ACCESS_TOKEN;
+  
+  if (!pid || !token) {
+    return { status: 500, data: { error: "missing_pixel_or_token" } };
+  }
+  
+  const url = `https://graph.facebook.com/v18.0/${pid}/events?access_token=${encodeURIComponent(token)}`;
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
   const data = await res.json().catch(() => ({}));
-  return { status: res.status, data };
+  return { status: res.status, data, pixel_id: pid };
+}
+
+/**
+ * Envia evento para múltiplos pixels
+ * @param {Object} payload - Payload do evento
+ * @param {Array<string>} pixelIds - IDs dos pixels (opcional, se não especificado envia para todos)
+ * @param {boolean} onlyFluxlabs - Se true, envia apenas para pixels com FluxLabs habilitado
+ * @returns {Promise<Array<Object>>} Resultados do envio
+ */
+async function sendToMultiplePixels(payload, pixelIds = null, onlyFluxlabs = false) {
+  let pixelsToSend = PIXELS_CONFIG;
+  
+  // Filtrar apenas pixels com FluxLabs se solicitado
+  if (onlyFluxlabs) {
+    pixelsToSend = pixelsToSend.filter(p => p.has_fluxlabs === true);
+  }
+  
+  // Filtrar por IDs específicos se fornecidos
+  if (pixelIds && Array.isArray(pixelIds) && pixelIds.length > 0) {
+    pixelsToSend = pixelsToSend.filter(p => pixelIds.includes(p.id));
+  }
+  
+  if (pixelsToSend.length === 0) {
+    return [];
+  }
+  
+  // Enviar para todos os pixels em paralelo
+  const promises = pixelsToSend.map(pixel => 
+    sendToMetaCAPI(payload, pixel.id, pixel.token)
+      .then(result => ({ ...result, pixel_name: pixel.name }))
+      .catch(err => ({ 
+        status: 500, 
+        data: { error: err.message }, 
+        pixel_id: pixel.id,
+        pixel_name: pixel.name 
+      }))
+  );
+  
+  return Promise.all(promises);
 }
 
 function mapEvent(body, req) {
@@ -315,7 +446,25 @@ function mapEvent(body, req) {
 }
 
 // Health
-app.get("/health", (_req, res) => res.status(200).json({ ok: true, ts: Date.now() }));
+app.get("/health", (_req, res) => res.status(200).json({ 
+  ok: true, 
+  ts: Date.now(),
+  pixels_configured: PIXELS_CONFIG.length,
+  pixels: PIXELS_CONFIG.map(p => ({ id: p.id, name: p.name, has_fluxlabs: p.has_fluxlabs }))
+}));
+
+// GET /webhook/fluxlabs - Verificação de endpoint
+app.get("/webhook/fluxlabs", (_req, res) => {
+  const fluxlabsPixels = PIXELS_CONFIG.filter(p => p.has_fluxlabs === true);
+  return res.status(200).json({
+    ok: true,
+    endpoint: "/webhook/fluxlabs",
+    method: "POST",
+    pixels_with_fluxlabs: fluxlabsPixels.length,
+    pixels: fluxlabsPixels.map(p => ({ id: p.id, name: p.name })),
+    message: "Este endpoint aceita apenas requisições POST. Use POST para enviar eventos do FluxLabs."
+  });
+});
 
 // Challenge estilo Meta Webhooks (opcional)
 app.get("/webhook", (req, res) => {
@@ -360,7 +509,7 @@ app.post("/webhook", async (req, res) => {
     console.log(JSON.stringify({ level: "info", msg: "webhook_test_received" }));
     return res.status(200).json({ ok: true, test: true });
   }
-  if (!PIXEL_ID || !ACCESS_TOKEN) {
+  if (PIXELS_CONFIG.length === 0) {
     return res.status(500).json({ ok: false, error: "missing_pixel_or_token" });
   }
 
@@ -717,17 +866,47 @@ app.post("/webhook", async (req, res) => {
   }
 
   try {
-    const result = await sendToMetaCAPI(mapped.payload);
-    console.log(JSON.stringify({
-      level: "info",
-      msg: "capi_result",
-      event_name: mapped.mapped_event_name,
-      event_id: mapped.event_id,
-      capi_status: result.status,
-      events_received: result.data?.events_received ?? null,
-      event_type: (mapped.payload?.data?.[0]?.custom_data?.event_type) || null
-    }));
-    return res.status(200).json({ ok: true, event_id: mapped.event_id, capi_status: result.status, events_received: mapped.payload?.data?.length || 0, capi_response: result.data });
+    // Permitir especificar pixels no payload (opcional)
+    const targetPixels = req.body?.pixel_ids || req.body?.pixels || null;
+    
+    // Enviar para múltiplos pixels
+    const results = await sendToMultiplePixels(mapped.payload, targetPixels, false);
+    
+    if (results.length === 0) {
+      return res.status(500).json({ ok: false, error: "no_pixels_configured" });
+    }
+    
+    // Log de resultados
+    results.forEach(result => {
+      console.log(JSON.stringify({
+        level: "info",
+        msg: "capi_result",
+        pixel_id: result.pixel_id,
+        pixel_name: result.pixel_name,
+        event_name: mapped.mapped_event_name,
+        event_id: mapped.event_id,
+        capi_status: result.status,
+        events_received: result.data?.events_received ?? null,
+        event_type: (mapped.payload?.data?.[0]?.custom_data?.event_type) || null
+      }));
+    });
+    
+    // Retornar resultado do primeiro pixel (compatibilidade) + todos os resultados
+    const firstResult = results[0];
+    return res.status(200).json({ 
+      ok: true, 
+      event_id: mapped.event_id, 
+      capi_status: firstResult.status, 
+      events_received: mapped.payload?.data?.length || 0, 
+      capi_response: firstResult.data,
+      pixels_sent: results.length,
+      all_results: results.map(r => ({
+        pixel_id: r.pixel_id,
+        pixel_name: r.pixel_name,
+        status: r.status,
+        events_received: r.data?.events_received ?? null
+      }))
+    });
   } catch (_e) {
     return res.status(500).json({ ok: false, error: "capi_request_failed" });
   }
@@ -927,8 +1106,18 @@ app.post("/webhook/fluxlabs", async (req, res) => {
       return res.status(200).json({ ok: true, test: true, source: "fluxlabs" });
     }
     
-    if (!PIXEL_ID || !ACCESS_TOKEN) {
-      return res.status(500).json({ ok: false, error: "missing_pixel_or_token" });
+    // Verificar se há pixels com FluxLabs habilitado
+    const fluxlabsPixels = PIXELS_CONFIG.filter(p => p.has_fluxlabs === true);
+    if (fluxlabsPixels.length === 0 && PIXELS_CONFIG.length === 0) {
+      return res.status(500).json({ ok: false, error: "missing_pixel_or_token", source: "fluxlabs" });
+    }
+    if (fluxlabsPixels.length === 0) {
+      return res.status(400).json({ 
+        ok: false, 
+        error: "no_fluxlabs_pixels", 
+        message: "Nenhum pixel configurado com FluxLabs habilitado",
+        source: "fluxlabs" 
+      });
     }
     
     // Mapear evento do FluxLabs para o formato do webhook
@@ -1178,23 +1367,51 @@ app.post("/webhook/fluxlabs", async (req, res) => {
     }
     
     try {
-      const result = await sendToMetaCAPI(mapped.payload);
-      console.log(JSON.stringify({
-        level: "info",
-        msg: "fluxlabs_capi_result",
-        event_name: mapped.mapped_event_name,
-        event_id: mapped.event_id,
-        capi_status: result.status,
-        events_received: result.data?.events_received ?? null,
-        event_type: (mapped.payload?.data?.[0]?.custom_data?.event_type) || null
-      }));
+      // Permitir especificar pixels no payload (opcional)
+      const targetPixels = req.body?.pixel_ids || req.body?.pixels || null;
+      
+      // Enviar apenas para pixels com FluxLabs habilitado
+      const results = await sendToMultiplePixels(mapped.payload, targetPixels, true);
+      
+      if (results.length === 0) {
+        return res.status(500).json({ 
+          ok: false, 
+          error: "no_fluxlabs_pixels_available", 
+          source: "fluxlabs" 
+        });
+      }
+      
+      // Log de resultados
+      results.forEach(result => {
+        console.log(JSON.stringify({
+          level: "info",
+          msg: "fluxlabs_capi_result",
+          pixel_id: result.pixel_id,
+          pixel_name: result.pixel_name,
+          event_name: mapped.mapped_event_name,
+          event_id: mapped.event_id,
+          capi_status: result.status,
+          events_received: result.data?.events_received ?? null,
+          event_type: (mapped.payload?.data?.[0]?.custom_data?.event_type) || null
+        }));
+      });
+      
+      // Retornar resultado do primeiro pixel (compatibilidade) + todos os resultados
+      const firstResult = results[0];
       return res.status(200).json({ 
         ok: true, 
         event_id: mapped.event_id, 
-        capi_status: result.status, 
+        capi_status: firstResult.status, 
         events_received: mapped.payload?.data?.length || 0, 
-        capi_response: result.data,
-        source: "fluxlabs"
+        capi_response: firstResult.data,
+        source: "fluxlabs",
+        pixels_sent: results.length,
+        all_results: results.map(r => ({
+          pixel_id: r.pixel_id,
+          pixel_name: r.pixel_name,
+          status: r.status,
+          events_received: r.data?.events_received ?? null
+        }))
       });
     } catch (_e) {
       return res.status(500).json({ ok: false, error: "capi_request_failed", source: "fluxlabs" });
