@@ -16,9 +16,13 @@ Este webhook agora suporta **payloads específicos para eventos de marketing**, 
 - 🟡 `deposit_generated` → Mapeado para **InitiateCheckout**
 - 🔵 `confirmed_deposit` → Mapeado para **Purchase** (FTD ou REDEPOSIT)
 
+**🔄 Formato Aninhado (Novo!):**
+O webhook agora suporta payloads com estrutura aninhada `{data: {user, deposit, event}}`. Veja [NESTED_PAYLOAD_FORMAT.md](./NESTED_PAYLOAD_FORMAT.md) para detalhes completos.
+
 **📚 Documentação:**
 - 🚀 [QUICK_START.md](./QUICK_START.md) - Guia rápido para começar
 - 📖 [PAYLOAD_EXAMPLES.md](./PAYLOAD_EXAMPLES.md) - Exemplos detalhados dos payloads
+- 🔄 [NESTED_PAYLOAD_FORMAT.md](./NESTED_PAYLOAD_FORMAT.md) - Formato aninhado (data.user.deposit)
 - 🎯 [TRACKING_GUIDE.md](./TRACKING_GUIDE.md) - Guia de rastreamento de indicações
 - 🔄 [FLOW_DIAGRAM.md](./FLOW_DIAGRAM.md) - Fluxo visual dos dados
 - 🔗 [FLUXLABS_INTEGRATION.md](./FLUXLABS_INTEGRATION.md) - Integração com FluxLabs

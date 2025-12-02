@@ -516,11 +516,79 @@ app.post("/webhook", async (req, res) => {
   // Normalização do corpo
   const p = req.body || {};
 
+  // ===== NORMALIZAÇÃO DE PAYLOAD ANINHADO =====
+  // Se o payload vier no formato: {data: {user, deposit, event}}
+  // Normalize para o formato esperado pelo webhook
+  if (p.data && typeof p.data === "object") {
+    const { user, deposit, event } = p.data;
+    
+    // Extrair tipo de evento
+    if (event && event.event_type) {
+      p.type = event.event_type; // deposit_made, user_created, etc.
+    }
+    
+    // Extrair dados do usuário
+    if (user && typeof user === "object") {
+      p.name = user.name || `${user.first_name || ''} ${user.last_name || ''}`.trim();
+      p.email = user.email;
+      p.phone = user.phone || user.phone_number;
+      p.date_birth = user.birth_date;
+      p.user_id = user.id;
+      p.ip_address = user.user_ip;
+      p.user_agent = user.user_agent;
+      
+      // Meta Pixel
+      if (user.fb_id) p.fbp = user.fb_id;
+      
+      // UTM parameters
+      if (user.utm_source) p.utm_source = user.utm_source;
+      if (user.utm_medium) p.utm_medium = user.utm_medium;
+      if (user.utm_campaign) p.utm_campaign = user.utm_campaign;
+      if (user.utm_content) p.utm_content = user.utm_content;
+      if (user.utm_term) p.utm_term = user.utm_term;
+      
+      // Indicação/Afiliação
+      if (user.inviter_code) p.usernameIndication = user.inviter_code;
+    }
+    
+    // Extrair dados do depósito
+    if (deposit && typeof deposit === "object") {
+      p.value = parseFloat(deposit.amount) || 0;
+      p.currency = "BRL";
+      p.first_deposit = deposit.first_deposit === true || deposit.deposit_count === 0;
+      p.deposit_count = deposit.deposit_count;
+      p.qrCode = deposit.qrcodedata;
+      p.copiaECola = deposit.qrcodedata;
+      p.coupon = deposit.coupon;
+      
+      // Adicionar informações adicionais ao custom_data
+      if (!p.custom_data) p.custom_data = {};
+      if (deposit.coupon) p.custom_data.coupon = deposit.coupon;
+      if (deposit.unique_id) p.custom_data.transaction_id = deposit.unique_id.toString();
+    }
+    
+    console.log(JSON.stringify({
+      level: "info",
+      msg: "normalized_nested_payload",
+      original_structure: "data.user.deposit.event",
+      detected_type: p.type
+    }));
+  }
+
   // ===== PROCESSAMENTO ESPECÍFICO DOS EVENTOS DE MARKETING =====
   // Detectar e processar eventos baseados no campo "type", "action" ou "event"
   // Prioridade: type > action > event
   const eventTypeRaw = p.type || p.action || p.event || "";
-  const eventType = eventTypeRaw.toString().toLowerCase().replace(/[^a-z0-9_]/g, "");
+  let eventType = eventTypeRaw.toString().toLowerCase().replace(/[^a-z0-9_]/g, "");
+  
+  // Mapear aliases de eventos para tipos internos
+  if (eventType === "deposit_made" || eventType === "depositmade") {
+    // deposit_made pode ser tanto deposit_generated quanto confirmed_deposit
+    // Se tiver first_deposit = true e já for confirmado, é confirmed_deposit
+    // Se for apenas PIX gerado, é deposit_generated
+    // Por padrão, assumimos que deposit_made = depósito confirmado
+    eventType = "confirmed_deposit";
+  }
   
   // Mapear user_created (action) para register_new_user (type interno)
   if (eventType === "user_created" || eventType === "register_new_user") {
