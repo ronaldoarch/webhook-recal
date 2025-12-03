@@ -410,3 +410,4 @@ POST /webhook → 200 OK
 **Arquivos criados**: 3 (NESTED_PAYLOAD_FORMAT.md, test-nested-payload.js, SOLUCAO_ERRO_400.md)  
 **Compatibilidade**: Mantida com todos os formatos anteriores  
 
+

@@ -516,7 +516,43 @@ app.post("/webhook", async (req, res) => {
   // Normalização do corpo
   const p = req.body || {};
 
-  // ===== NORMALIZAÇÃO DE PAYLOAD ANINHADO =====
+  // ===== NORMALIZAÇÃO DE DIFERENTES FORMATOS DE PAYLOAD =====
+  
+  // FORMATO 1: Agência Midas (Sistema de Webhook com tags e affiliate)
+  // Detecta: tem "tags" (array) e "affiliate" mas NÃO tem "type"
+  if (Array.isArray(p.tags) && p.affiliate && !p.type && !p.data) {
+    console.log(JSON.stringify({
+      level: "info",
+      msg: "detected_agenciamidas_format",
+      has_tags: true,
+      has_affiliate: true
+    }));
+    
+    // Detectar tipo de evento baseado nas tags
+    if (p.tags.includes("Registered-customer") || p.tags.includes("registered-customer")) {
+      p.type = "register_new_user";
+    }
+    
+    // Normalizar campos
+    if (p.birth_date && !p.date_birth) p.date_birth = p.birth_date;
+    if (p.affiliate && !p.usernameIndication) p.usernameIndication = p.affiliate;
+    
+    // Adicionar CPF e registration_date ao custom_data
+    p.custom_data = p.custom_data || {};
+    if (p.cpf) p.custom_data.cpf = p.cpf;
+    if (p.registration_date) p.custom_data.registration_date = p.registration_date;
+    if (p.tags && p.tags.length > 0) p.custom_data.tags = p.tags.join(",");
+    
+    console.log(JSON.stringify({
+      level: "info",
+      msg: "normalized_agenciamidas_payload",
+      detected_type: p.type,
+      has_cpf: !!p.cpf,
+      affiliate: p.affiliate
+    }));
+  }
+
+  // FORMATO 2: Payload Aninhado (data.user.deposit.event)
   // Se o payload vier no formato: {data: {user, deposit, event}}
   // Normalize para o formato esperado pelo webhook
   if (p.data && typeof p.data === "object") {
