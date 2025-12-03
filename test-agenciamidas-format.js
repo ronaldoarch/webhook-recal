@@ -82,8 +82,13 @@ async function testWebhook() {
         console.log(`✅ Meta recebeu ${result.events_received} evento(s)`);
       }
       
+      console.log('\n🎯 Verificações Importantes:');
+      console.log('- Verifique nos logs do servidor se aparece "event_name":"CompleteRegistration"');
+      console.log('- O evento deve ser "CompleteRegistration" (Concluir Inscrição)');
+      console.log('- NÃO deve ser "PageView"');
+      
       console.log('\n🎉 Teste concluído com sucesso!');
-      console.log('\n💡 Verifique os logs do servidor para detalhes da normalização');
+      console.log('\n💡 Verifique os logs do servidor para confirmar o event_name');
       
     } else if (result.ignored) {
       console.log(`⚠️  Evento ignorado: ${result.reason}`);

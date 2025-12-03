@@ -531,6 +531,7 @@ app.post("/webhook", async (req, res) => {
     // Detectar tipo de evento baseado nas tags
     if (p.tags.includes("Registered-customer") || p.tags.includes("registered-customer")) {
       p.type = "register_new_user";
+      p.event_name = "CompleteRegistration"; // Define evento do Meta diretamente
     }
     
     // Normalizar campos
@@ -543,12 +544,41 @@ app.post("/webhook", async (req, res) => {
     if (p.registration_date) p.custom_data.registration_date = p.registration_date;
     if (p.tags && p.tags.length > 0) p.custom_data.tags = p.tags.join(",");
     
+    // Preparar user_data
+    p.user_data = p.user_data || {};
+    if (p.email && !p.user_data.email) p.user_data.email = p.email;
+    if (p.phone && !p.user_data.phone) p.user_data.phone = p.phone;
+    if (p.name) {
+      const nameParts = p.name.trim().split(" ");
+      if (!p.user_data.fn) p.user_data.fn = nameParts[0];
+      if (!p.user_data.ln && nameParts.length > 1) {
+        p.user_data.ln = nameParts.slice(1).join(" ");
+      }
+    }
+    if (p.date_birth && !p.user_data.db) {
+      p.user_data.db = p.date_birth.replace(/-/g, "");
+    }
+    if (p.ip_address && !p.user_data.client_ip_address) {
+      p.user_data.client_ip_address = p.ip_address;
+    }
+    if (p.user_agent && !p.user_data.client_user_agent) {
+      p.user_data.client_user_agent = p.user_agent;
+    }
+    
+    // URL de origem
+    if (!p.event_source_url) {
+      p.event_source_url = "https://topbets.agenciamidas.com/cadastro";
+    }
+    
     console.log(JSON.stringify({
       level: "info",
       msg: "normalized_agenciamidas_payload",
       detected_type: p.type,
+      event_name: p.event_name,
       has_cpf: !!p.cpf,
-      affiliate: p.affiliate
+      affiliate: p.affiliate,
+      email: p.email ? "***" : null,
+      phone: p.phone ? "***" : null
     }));
   }
 
